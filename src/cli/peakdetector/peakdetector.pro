@@ -49,7 +49,7 @@ macx {
     QMAKE_LFLAGS += $$(LDFLAGS)
     QMAKE_CXXFLAGS += -fopenmp
     LIBS += -lomp
-    LIBS -= -lnetcdf -lcdfread
+    LIBS -= -lnetcdf -lcdfread -fopenmp
 }
 
 SOURCES	= options.cpp                                            \
