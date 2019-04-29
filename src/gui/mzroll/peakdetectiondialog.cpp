@@ -147,6 +147,11 @@ PeakDetectionDialog::PeakDetectionDialog(QWidget *parent) :
                         ->hitEvent("Peak Detection",
                                    "Match Fragmentation Switched",
                                    state);
+                    if (state == "On") {
+                        this->mainwindow
+                            ->getAnalytics()
+                            ->hitEvent("PRM", "PRM Analysis");
+                    }
                 });
         connect(saveMethodButton,SIGNAL(clicked()),this,SLOT(saveMethod())); //TODO: Sahil - Kiran, Added while merging mainwindow
         connect(loadMethodButton,SIGNAL(clicked()),this,SLOT(loadMethod())); //TODO: Sahil - Kiran, Added while merging mainwindow
@@ -494,25 +499,15 @@ void PeakDetectionDialog::findPeaks() {
     } else if (!(dbOptions->isChecked()) && (featureOptions->isChecked())) {
         _featureDetectionType = FullSpectrum;
         mainwindow->getAnalytics()->hitEvent("Peak Detection", "Untargeted");
-    } else if (!(dbOptions->isChecked()) && !(featureOptions->isChecked())) {
-        _featureDetectionType = QQQ;
     } else {
         _featureDetectionType = FullSpectrum;
     }
-
-    QString title;
-    if (_featureDetectionType == FullSpectrum)
-        title = "Peak Table " + QString::number(mainwindow->lastPeakTableId) + "\nDetected Features \n";
-    else if (_featureDetectionType == CompoundDB)
-        title = "Peak Table " + QString::number(mainwindow->lastPeakTableId) + "\nDB Search " + compoundDatabase->currentText();
-    else if (_featureDetectionType == QQQ)
-        title = "Peak Table " + QString::number(mainwindow->lastPeakTableId) + "\nQQQ DB Search " + compoundDatabase->currentText();
 
     TableDockWidget* peaksTable = mainwindow->getBookmarkedPeaks();
     int peakTableIdx = outputTableComboBox->currentIndex();
 
     if (peakTableIdx == 0) {
-        peaksTable = mainwindow->addPeaksTable(title);
+        peaksTable = mainwindow->addPeaksTable(mainwindow->lastPeakTableId);
     } else if (peakTableIdx == 1) {
         peaksTable = mainwindow->getBookmarkedPeaks();
     } else if (peakTableIdx >= 2) {
@@ -543,13 +538,11 @@ void PeakDetectionDialog::findPeaks() {
     peakupdater->setPeakDetector(new PeakDetector(peakupdater->mavenParameters));
 
     // RUN THREAD
-    if (_featureDetectionType == QQQ) {
-        runBackgroupJob("findPeaksQQQ");
-    } else if (_featureDetectionType == FullSpectrum) {
+    if (_featureDetectionType == FullSpectrum)
         runBackgroupJob("processMassSlices");
-    } else {
+    else
         runBackgroupJob("computePeaks");
-    }
+
 }
 
 void PeakDetectionDialog::showIntensityQuantileStatus(int value) {

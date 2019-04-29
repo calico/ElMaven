@@ -19,6 +19,7 @@ PollyElmavenInterfaceDialog::PollyElmavenInterfaceDialog(MainWindow* mw)
     _activeTable = nullptr;
     _pollyIntegration = new PollyIntegration();
     _loadingDialog = new PollyWaitDialog(this);
+    _uploadInProgress = false;
 
     workflowMenu->setStyleSheet("QListView::item {"
                                 "border: 1px solid transparent;"
@@ -148,6 +149,18 @@ void PollyElmavenInterfaceDialog::_changePage()
 
 void PollyElmavenInterfaceDialog::_goToPolly()
 {
+    QString appName = "";
+    if (_selectedApp == PollyApp::FirstView) {
+        appName = "FirstView";
+    } else if (_selectedApp == PollyApp::Fluxomics) {
+        appName = "PollyPhi";
+    } else if (_selectedApp == PollyApp::QuantFit) {
+        appName = "QuantFit";
+    }
+    _mainwindow->getAnalytics()->hitEvent("PollyDialog",
+                                          "DirectedToApp",
+                                          appName);
+
     QDesktopServices::openUrl(_redirectionUrlMap[_selectedApp]);
 }
 
@@ -308,7 +321,6 @@ void PollyElmavenInterfaceDialog::_resetUiElements()
 void PollyElmavenInterfaceDialog::startupDataLoad()
 {
     _resetUiElements();
-    QIcon projectIcon(rsrcPath + "/POLLY.png");
     if (_projectNameIdMap.isEmpty()) {
         _projectNameIdMap = _pollyIntegration->getUserProjects();
     }
@@ -627,7 +639,8 @@ QString PollyElmavenInterfaceDialog::_getRedirectionUrl(QString datetimestamp,
                     .arg(datetimestamp);
         break;
     } case PollyApp::QuantFit: {
-        QString componentId = _pollyIntegration->obtainComponentId("calibration");
+        QString componentId =
+            _pollyIntegration->obtainComponentId("calibration_file_uploader_beta");
         if (componentId == "-1")
             return redirectionUrl;
 
@@ -748,6 +761,7 @@ QStringList PollyElmavenInterfaceDialog::_prepareFilesToUpload(QDir qdir,
 
 void PollyElmavenInterfaceDialog::_logout()
 {
+    usernameLabel->setText("");
     _pollyIntegration->logout();
     _projectNameIdMap = QVariantMap();
     close();
@@ -760,4 +774,9 @@ void PollyElmavenInterfaceDialog::_performPostUploadTasks(bool uploadSuccessful)
     peakTableCombo->setEnabled(true);
     projectOptions->setEnabled(true);
     workflowMenu->setEnabled(true);
+}
+
+MainWindow* PollyElmavenInterfaceDialog::getMainWindow()
+{
+    return _mainwindow;
 }

@@ -12,7 +12,7 @@ UrlLabel::UrlLabel(VideoPlayer* parent):
     QLabel(parent)
 {
     setOpenExternalLinks(true);
-    setText("<a href=\"https://github.com/ElucidataInc/ElMaven/issues/964\">Know more</a>");
+    setText("<a href=\"https://polly.elucidata.io/prelogin/home\">Book a Demo</a>");
 }
 
 void UrlLabel::mousePressEvent(QMouseEvent* event)
@@ -41,13 +41,13 @@ VideoPlayer::VideoPlayer(QSettings *settings,MainWindow* mw, QWidget* parent)
     _message->setWordWrap(true);
     _message->setAlignment(Qt::AlignCenter);
     _message->setContentsMargins(0,0,0,20);
-    _message->setText("Classify groups as Good and Bad quickly and with accuracy with the new Machine Learning \
+    _message->setText("Accurately classify groups as Good and Bad quickly with the new Machine Learning \
 algorithm. Save time classifying data and spend more time analyzing it. ");
     layout->addWidget(_message);
 
 
     _extraText =new QLabel(this);
-    _extraText->setText("To know more view the demo below");
+    _extraText->setText("Take a quick peek inside!");
     _extraText->setAlignment(Qt::AlignCenter);
 
     layout->addWidget(_extraText);
@@ -165,7 +165,7 @@ void VideoPlayer::linkClicked()
 {
     if(!_linkClickedOnce) {
         std::cerr << "sending event for Know more prompt\n";
-        _mainWindow->getAnalytics()->hitEvent("VideoPlayer","KnowMoreMLPrompt");
+        _mainWindow->getAnalytics()->hitEvent("MLModel","ReadDocumentation");
         _linkClickedOnce++;
     }
 }
@@ -182,7 +182,7 @@ void VideoPlayer::play()
     if(!_playedVideoOnce) {
         // for every session we only want one event
         std::cerr << "sending event for Ml Video\n";
-        _mainWindow->getAnalytics()->hitEvent("VideoPlayer", "PlayedVideoMLPrompt");
+        _mainWindow->getAnalytics()->hitEvent("MLModel", "WatchedVideo");
         _playedVideoOnce++;
     }
 

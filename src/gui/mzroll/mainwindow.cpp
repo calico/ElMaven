@@ -3,6 +3,7 @@
 #include <QStandardPaths>
 #include "notificator.h"
 #include "videoplayer.h"
+#include "background_peaks_update.h"
 #ifdef WIN32
 #include <windows.h>
 #endif
@@ -221,32 +222,37 @@ using namespace mzUtils;
 	clsf = new ClassifierNeuralNet();    //clsf = new ClassifierNaiveBayes();
 		mavenParameters = new MavenParameters(QString(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QDir::separator() + "lastRun.xml").toStdString());
 	_massCutoffWindow = new MassCutoff();
+
+
+    QString clsfModelFilename;
+    QString weightsFile;
+    QString modelFile;
+    QString appDir;
+
+    #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+        appDir =  QDir::cleanPath(QApplication::applicationDirPath()) + QDir::separator();
+    #endif
+
+    #if defined(Q_OS_MAC)
+        appDir =  qApp->applicationDirPath() + QDir::separator() + ".." + QDir::separator() + ".." + QDir::separator() + ".." \
+              + QDir::separator();
+    #endif
+
+    clsfModelFilename = appDir + "default.model";
+    weightsFile = appDir + "group.weights";
+    modelFile = appDir + "svm.model";
+
 	groupClsf = new groupClassifier();
-        groupClsf->loadModel("bin/weights/group.weights");
+        groupClsf->loadModel(weightsFile.toStdString());
  
   	groupPred = new svmPredictor();
-        groupPred->loadModel("bin/weights/svm.model");
+        groupPred->loadModel(modelFile.toStdString());
 
 
    /* double massCutoff=settings->value("compoundMassCutoffWindow").toDouble();
       string massCutoffType=settings->value("massCutoffType").toString().toStdString();
       _massCutoffWindow->setMassCutoffAndType(massCutoff,massCutoffType);
     */
-
-
-    // always load model file present in the bin directory.
-    QString clsfModelFilename;
-
-    #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
-      clsfModelFilename = QDir::cleanPath(QApplication::applicationDirPath() + QDir::separator() + "default.model");
-    #endif
-
-    #if defined(Q_OS_MAC)
-      clsfModelFilename = qApp->applicationDirPath() + QDir::separator() + ".." + QDir::separator() + ".." + QDir::separator() + ".." \
-              + QDir::separator() + "default.model";
-    #endif
-
-
 
     if (QFile::exists(clsfModelFilename)) {
         settings->setValue("peakClassifierFile", clsfModelFilename);
@@ -533,6 +539,7 @@ using namespace mzUtils;
 	connect(fileLoader,SIGNAL(projectLoaded()), this,SLOT(setIonizationModeLabel()));
 	connect(fileLoader,SIGNAL(projectLoaded()), this,SLOT(deleteCrashFileTables()));
     connect(fileLoader,SIGNAL(projectLoaded()), this, SLOT(setInjectionOrderFromTimeStamp()));
+    connect(projectDockWidget, &ProjectDockWidget::samplesDeleted, spectraWidget, &SpectraWidget::clearScans);
     connect(fileLoader,
             SIGNAL(compoundsLoaded(QString, int)),
             this,
@@ -824,20 +831,26 @@ void MainWindow::saveSettingsToLog() {
 }
 
 void MainWindow::showNotification(TableDockWidget* table) {
-	QIcon icon = QIcon(":/images/notification.png");
-	QString title("");
-    QString message("Make your analyses more insightful with Machine learning.\n \
-                    View your fluxomics workflow in PollyPhi.");
-	
-	if (table->groupCount() == 0 || table->labeledGroups == 0)
-		return;
-	
-	Notificator* fluxomicsPrompt = Notificator::showMessage(icon, title, message, table);
-	connect(fluxomicsPrompt, SIGNAL(promptClicked()), SLOT(showPollyElmavenInterfaceDialog()));
+    QIcon icon = QIcon(":/images/notification.png");
+    QString title("");
+    QString message("Make your analyses more insightful with Machine learning."
+                    "\nView your fluxomics workflow in PollyPhi.");
+
+    if (table->groupCount() == 0 || table->labeledGroups == 0)
+        return;
+
+    Notificator* fluxomicsPrompt = Notificator::showMessage(icon,
+                                                            title,
+                                                            message,
+                                                            table);
+    connect(fluxomicsPrompt,
+            SIGNAL(promptClicked()),
+            SLOT(showPollyElmavenInterfaceDialog()));
     connect(fluxomicsPrompt,
             &Notificator::promptClicked,
             this,
             [=] {
+                analytics->hitEvent("Prompt", "Clicked", "PollyPhi");
                 pollyElmavenInterfaceDialog->switchToApp(PollyApp::Fluxomics);
             });
     connect(fluxomicsPrompt,
@@ -848,7 +861,7 @@ void MainWindow::showNotification(TableDockWidget* table) {
 
 void MainWindow::createPeakTable(QString filenameNew) {
     projectDockWidget->setLastOpenedProject(filenameNew);
-    TableDockWidget * peaksTable = this->addPeaksTable("");
+    TableDockWidget * peaksTable = this->addPeaksTable();
     auto groups = fileLoader->readGroupsXML(filenameNew);
     for (auto group : groups) {
         peaksTable->addPeakGroup(group);
@@ -1100,7 +1113,7 @@ void MainWindow::saveProjectForFilename(bool tablesOnly)
 {
     if (fileLoader->isMzRollProject(_currentProjectName)) {
         _saveAllTablesAsMzRoll();
-    } else if (fileLoader->isSQLiteProject(_currentProjectName)) {
+    } else if (fileLoader->isEmdbProject(_currentProjectName)) {
         if (tablesOnly) {
             auto allTables = getPeakTableList();
             allTables.append(bookmarkedPeaks);
@@ -1275,21 +1288,18 @@ void MainWindow::setUrl(Reaction* r) {
 	setUrl(url, link);
 }
 
-TableDockWidget* MainWindow::addPeaksTable(QString title) {
+TableDockWidget* MainWindow::addPeaksTable(int tableId) {
     int customTableId = -1;
 
-    // attempt to extract out peak table ID from its name, assuming ID is
-    // at the end of the title passed
-    auto stringList = title.split(QRegExp("\\s+"), QString::SkipEmptyParts);
-    if (stringList.size()) {
-        auto idString = stringList[stringList.size() - 1].toStdString();
-        customTableId = std::atoi(idString.c_str());
-    }
-    TableDockWidget* panel = new PeakTableDockWidget(this, customTableId);
+    TableDockWidget* panel = new PeakTableDockWidget(this, tableId);
 	analytics->hitEvent("New Table", "Peak Table");
 
     addDockWidget(Qt::BottomDockWidgetArea, panel, Qt::Horizontal);
-	QToolButton* btnTable = addDockWidgetButton(sideBar, panel, QIcon(rsrcPath + "/featuredetect.png"), title);
+
+    QToolButton* btnTable = addDockWidgetButton(sideBar,
+                                                panel,
+                                                QIcon(rsrcPath + "/featuredetect.png"),
+                                                "");
 
     groupTables.push_back(panel);
 	groupTablesButtons[panel]=btnTable;
@@ -1703,8 +1713,8 @@ void MainWindow::open()
         this,
         "Select projects, peaks, samples to open:",
         dir,
-        tr("All Known Formats(*.mzroll *.emDB *.mzPeaks *.mzXML *.mzxml "
-           "*.mzdata *.mzData *.mzData.xml *.cdf *.nc *.mzML);;")
+        tr("All Known Formats(*.mzroll *.emDB *.mzrollDB *.mzPeaks *.mzXML "
+           "*.mzxml *.mzdata *.mzData *.mzData.xml *.cdf *.nc *.mzML);;")
             + tr("mzXML Format(*.mzXML *.mzxml);;")
             + tr("mzData Format(*.mzdata *.mzData *.mzData.xml);;")
             + tr("mzML Format(*.mzml *.mzML);;")
@@ -1736,11 +1746,15 @@ void MainWindow::open()
                    + " "
                    + fileInfo.fileName());
 
-    QString sqliteProjectBeingLoaded = "";
+    QString emdbProjectBeingLoaded = "";
     Q_FOREACH (QString filename, filelist) {
-        if (fileLoader->isSQLiteProject(filename)) {
-            sqliteProjectBeingLoaded = filename;
+        if (fileLoader->isEmdbProject(filename)) {
+            emdbProjectBeingLoaded = filename;
             analytics->hitEvent("Project Load", "emDB");
+        } else if (fileLoader->isMzrollDbProject(filename)) {
+            emdbProjectBeingLoaded = fileLoader->swapFilenameExtension(filename,
+                                                                       "emDB");
+            analytics->hitEvent("Project Load", "mzrollDB");
         } else if (fileLoader->isMzRollProject(filename)) {
             analytics->hitEvent("Project Load", "mzroll");
         }
@@ -1748,9 +1762,9 @@ void MainWindow::open()
         fileLoader->addFileToQueue(filename);
     }
 
-    if (!sqliteProjectBeingLoaded.isEmpty()) {
+    if (!emdbProjectBeingLoaded.isEmpty()) {
         projectDockWidget->saveAndCloseCurrentSQLiteProject();
-        _latestUserProjectName = sqliteProjectBeingLoaded;
+        _latestUserProjectName = emdbProjectBeingLoaded;
 
         // reset filename in the title to overwrite any saves while closing last
         // SQLite project
@@ -1889,17 +1903,20 @@ void MainWindow::_postCompoundsDBLoadActions(QString filename,
         if (ligandWidget->isVisible())
             ligandWidget->setDatabase(QString(dbName.c_str()));
 
-        int msLevel = 1;
+        QString eventLabel = "MS1";
         vector<Compound*> loadedCompounds = DB.getCompoundsSubset(dbName);
         if (loadedCompounds[0]->precursorMz > 0
             && (loadedCompounds[0]->productMz > 0
                 || loadedCompounds[0]->fragmentMzValues.size() > 0)) {
-            msLevel = 2;
+            eventLabel = DB.isNISTLibrary(dbName) ? "MS2 (PRM)"
+                                                  : "MS2 (MRM)";
         }
-
-		analytics->hitEvent("Load Compound DB",
-							"Successful Load",
-							QString("MS") + QString::number(msLevel));
+        analytics->hitEvent("Load Compound DB",
+                            "Successful Load",
+                            eventLabel);
+        if (eventLabel == "MS2 (PRM)") {
+            analytics->hitEvent("PRM", "LoadedSpectralLibrary");
+        }
 
         // do not save NIST library files for automatic load when starting next
         // session, unless they are less than 2Mb in size
@@ -2009,22 +2026,26 @@ void MainWindow::_warnIfNISTPolarityMismatch()
     int dbPolarity = DB.getCompoundsSubset(dbName)[0]->ionizationMode;
     if (samplePolarity != dbPolarity) {
         QMessageBox msgBox;
-        msgBox.setWindowTitle(tr("Data Polarity Mismatch"));
-        msgBox.setIcon(QMessageBox::Information);
-        msgBox.setWindowFlags(Qt::CustomizeWindowHint);
+        msgBox.setWindowTitle(tr("Polarity Mismatch"));
         QString msg = "The polarity of loaded samples and spectral library do "
-                      "not match. To perform precise fragmentation search, "
-                      "please upload a spectral library of correct polarity %1";
+                      "not match. Please upload a spectral library of correct "
+					  "polarity %1";
         QString polarity = (samplePolarity > 0) ? "(positive)" : "(negative)";
         msg = msg.arg(polarity);
         msgBox.setText(msg);
         QPushButton* upload = msgBox.addButton(tr("Upload Spectral Library"),
                                                QMessageBox::ActionRole);
-        msgBox.addButton(QMessageBox::Ok);
+        msgBox.addButton(QMessageBox::Ignore);
+        msgBox.setDefaultButton(upload);
         msgBox.exec();
+        analytics->hitEvent("PRM", "Polarity Mismatch");
 
         if (msgBox.clickedButton() == upload) {
+            analytics->hitEvent("PRM", "Loaded Spectral Library", "Polarity Mismatch prompt");
             loadCompoundsFile();
+        }
+        else {
+            analytics->hitEvent("PRM", "Closed", "Polarity Mismatch prompt");
         }
     }
 }
@@ -2599,7 +2620,7 @@ void MainWindow::createMenus() {
     saveProjectFile->addAction(saveProjectAsSQLite);
 
     // add option to save as mzroll
-    QAction* saveProjectAsMzRoll = new QAction(tr("MAVEN Project (.mzroll)"),
+    QAction* saveProjectAsMzRoll = new QAction(tr("MAVEN Project (.mzroll) [Deprecated]"),
                                                this);
     connect(saveProjectAsMzRoll,
             SIGNAL(triggered()),
@@ -2662,10 +2683,11 @@ void MainWindow::createMenus() {
     aj->setCheckable(true); 
 	aj->setChecked(false);
     connect(aj, SIGNAL(toggled(bool)), fragPanel, SLOT(setVisible(bool)));
-	connect(aj, &QAction::toggled, [this]()
+    connect(aj, &QAction::toggled, [this](const bool checked)
     {
-        analytics->hitEvent("MS2 Events List",
-                                  "Clicked");
+        if (checked) {
+            this->analytics->hitEvent("PRM", "OpenedFragmentationEvents");
+        }
     });
 
     QAction* al = widgetsMenu->addAction("Peptide Fragmentation");
@@ -2717,7 +2739,7 @@ QToolButton* MainWindow::addDockWidgetButton(QToolBar* bar,
 	btn->setObjectName(dockwidget->objectName());
 	connect(btn, SIGNAL(clicked(bool)), dockwidget, SLOT(setVisible(bool)));
 	connect(btn, SIGNAL(clicked(bool)), dockwidget, SLOT(raise()));
-	connect(btn, SIGNAL(clicked(bool)), this, SLOT(sendAnalytics()));
+	connect(btn, SIGNAL(clicked(bool)), this, SLOT(sendAnalytics(bool)));
 	btn->setChecked(dockwidget->isVisible());
 	connect(dockwidget, SIGNAL(visibilityChanged(bool)), btn,
 			SLOT(setChecked(bool)));
@@ -2836,11 +2858,17 @@ void MainWindow::loadSettings()
     }
 }
 
-void MainWindow::sendAnalytics() {
+void MainWindow::sendAnalytics(bool checked) {
 
-	QString btnName = QObject::sender()->objectName();
-	analytics->hitScreenView(btnName);
+    QString btnName = QObject::sender()->objectName();
+    analytics->hitScreenView(btnName);
+    if (checked && btnName == "Fragmentation Spectra") {
+        analytics->hitEvent("PRM", "OpenedFragmentationSpectra");
+    }
 
+    if (checked && btnName == "Fragmentation Events") {
+        analytics->hitEvent("PRM", "OpenedFragmentationEvents");
+    }
 }
 
 void MainWindow::createToolBars() {
@@ -3608,6 +3636,9 @@ void MainWindow::showFragmentationScans(float pmz)
         return;
     fragPanel->clearTree();
     for (auto sample : samples) {
+        if (sample->ms1ScanCount() == 0)
+            continue;
+
         for (auto scan : sample->scans) {
 	        if (scan->mslevel < 2) continue;
 	        if (massCutoffDist(scan->precursorMz,

@@ -197,9 +197,16 @@ void EicWidget::integrateRegion(float rtmin, float rtmax) {
 		}
 	}
 
-	eicParameters->_integratedGroup.groupStatistics();
-	getMainWindow()->isotopeWidget->updateIsotopicBarplot(&eicParameters->_integratedGroup);
-	getMainWindow()->isotopeWidget->setPeakGroupAndMore(&eicParameters->_integratedGroup, true);
+    eicParameters->_integratedGroup.groupStatistics();
+    int ms2Events = eicParameters->_integratedGroup.getFragmentationEvents().size();
+    if (ms2Events) {
+        float ppm = getMainWindow()->mavenParameters->fragmentTolerance;
+        string scoringAlgo = getMainWindow()->mavenParameters->scoringAlgo;
+        eicParameters->_integratedGroup.computeFragPattern(ppm);
+        eicParameters->_integratedGroup.matchFragmentation(ppm, scoringAlgo);
+    }
+    getMainWindow()->isotopeWidget->updateIsotopicBarplot(&eicParameters->_integratedGroup);
+    getMainWindow()->isotopeWidget->setPeakGroupAndMore(&eicParameters->_integratedGroup, true);
 }
 
 void EicWidget::mouseDoubleClickEvent(QMouseEvent* event) {
@@ -1536,15 +1543,17 @@ void EicWidget::groupPeaks() {
     int eic_smoothingWindow = getMainWindow()->mavenParameters->eic_smoothingWindow;
     float grouping_maxRtWindow = getMainWindow()->mavenParameters->grouping_maxRtWindow;
 
-	eicParameters->groupPeaks(eic_smoothingWindow,
-								grouping_maxRtWindow,
-                                getMainWindow()->mavenParameters->minQuality,
-								getMainWindow()->mavenParameters->distXWeight,
-								getMainWindow()->mavenParameters->distYWeight,
-								getMainWindow()->mavenParameters->overlapWeight,
-								getMainWindow()->mavenParameters->useOverlap,
-								getMainWindow()->mavenParameters->minSignalBaselineDifference);
-
+    eicParameters->groupPeaks(eic_smoothingWindow,
+                              eicParameters->_slice.compound,
+                              grouping_maxRtWindow,
+                              getMainWindow()->mavenParameters->minQuality,
+                              getMainWindow()->mavenParameters->distXWeight,
+                              getMainWindow()->mavenParameters->distYWeight,
+                              getMainWindow()->mavenParameters->overlapWeight,
+                              getMainWindow()->mavenParameters->useOverlap,
+                              getMainWindow()->mavenParameters->minSignalBaselineDifference,
+                              getMainWindow()->mavenParameters->fragmentTolerance,
+                              getMainWindow()->mavenParameters->scoringAlgo);
 
 }
 
@@ -1998,6 +2007,7 @@ void EicWidget::addMS2Events(float mzmin, float mzmax)
     
 	int count = 0;
     for (auto const& sample : samples) {
+		if (sample->ms1ScanCount() == 0) continue;
         for (auto const& scan : sample->scans) {
             if (scan->mslevel > 1 &&
 				scan->precursorMz >= mzmin &&

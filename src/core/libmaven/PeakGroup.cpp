@@ -181,6 +181,20 @@ void PeakGroup::clear() {
     groupRank=INT_MAX;
 }
 
+bool PeakGroup::isMS1()
+{
+    if (peaks.size() == 0) return false;
+
+    Peak peak = peaks[0];
+    if (peak.getSample()) {
+        Scan* scan = peak.getSample()->getScan(peak.scan);
+        if (scan && scan->mslevel == 1)
+            return true;
+    }
+
+    return false;
+}
+
 void PeakGroup::addPeak(const Peak &peak)
 {
 	peaks.push_back(peak);
@@ -515,6 +529,8 @@ void PeakGroup::groupStatistics() {
     //@Kailash: Added for Avg Peak Quality and Intensity Weighted Peak Quality
     float peakQualitySum=0;
     float highestIntensity=0;
+    float weightedSum = 0;
+    float sumWeights = 0;
 
     for(unsigned int i=0; i< peaks.size(); i++) {
         if(peaks[i].pos != 0 && peaks[i].baseMz != 0) { rtSum += peaks[i].rt; mzSum += peaks[i].baseMz; nonZeroCount++; }
@@ -565,11 +581,14 @@ void PeakGroup::groupStatistics() {
             sampleCount++;
             if(peaks[i].peakIntensity > sampleMax) sampleMax = peaks[i].peakIntensity;
         }
-        
+
+        weightedSum += peaks[i].quality * peaks[i].peakIntensity;
+        sumWeights += peaks[i].peakIntensity;
         peakQualitySum += peaks[i].quality;
         if (peaks[i].peakIntensity > highestIntensity) highestIntensity = peaks[i].peakIntensity;
     }
     avgPeakQuality = peakQualitySum / peaks.size();
+    weightedAvgPeakQuality = weightedSum/sumWeights;
 
     if (sampleCount>0) sampleMean = sampleMean/sampleCount;
     if ( nonZeroCount ) {
@@ -708,6 +727,8 @@ vector<Scan*> PeakGroup::getRepresentativeFullScans() {
 vector<Scan*> PeakGroup::getFragmentationEvents()
 {
     vector<Scan*> matchedScans;
+    if (!this->isMS1()) return matchedScans;
+    
     for(auto peak : peaks) {
         mzSample* sample = peak.getSample();
         if (sample == NULL) continue;

@@ -230,14 +230,17 @@ int ProjectDatabase::saveGroupAndPeaks(PeakGroup* group,
     groupsQuery->bind(":table_name", tableName);
     groupsQuery->bind(":min_quality", group->minQuality);
 
-    string sample_ids = accumulate(next(begin(group->samples)),
-                                   end(group->samples),
-                                   to_string(group->samples[0]->getSampleId()),
-                                   [](string current, mzSample* s) {
-                                       return move(current)
-                                              + ';'
-                                              + to_string(s->getSampleId());
-                                   });
+    string sample_ids = "";
+    if (group->samples.size() > 0) {
+        sample_ids = accumulate(next(begin(group->samples)),
+                                end(group->samples),
+                                to_string(group->samples[0]->getSampleId()),
+                                [](string current, mzSample* s) {
+                                    return move(current)
+                                           + ';'
+                                           + to_string(s->getSampleId());
+                                });
+    }
     groupsQuery->bind(":sample_ids", sample_ids);
 
     if (!groupsQuery->execute())
@@ -478,10 +481,13 @@ void ProjectDatabase::saveAlignment(const vector<mzSample*>& samples)
 
     for (auto s : samples) {
         // ignore samples having MS2 scans
-        if (s->ms2ScanCount() > 0)
+        if (s->ms1ScanCount() == 0)
             continue;
 
         for (auto scan : s->scans) {
+            if (scan->mslevel > 1)
+                continue;
+
             float rt_original = scan->originalRt;
             float rt_updated = scan->rt;
             alignmentQuery->bind(":sample_id", s->getSampleId());
@@ -941,8 +947,11 @@ vector<PeakGroup*> ProjectDatabase::loadGroups(const vector<mzSample*>& loaded)
 
         vector<string> sample_ids;
         mzUtils::split(groupsQuery->stringValue("sample_ids"), ';', sample_ids);
-        for (auto id_string : sample_ids) {
-            int sampleId = stoi(id_string);
+        for (auto idString : sample_ids) {
+            if (idString.empty())
+                continue;
+
+            int sampleId = stoi(idString);
             auto sampleIter = find_if(begin(loaded),
                                       end(loaded),
                                       [sampleId](mzSample* s) {
@@ -1176,11 +1185,14 @@ void ProjectDatabase::loadAndPerformAlignment(const vector<mzSample*>& loaded)
     unordered_map<int, unordered_map<int, Scan*>> sampleScanMap;
     for (auto sample : loaded) {
         // ignore samples having MS2 scans
-        if (sample->ms2ScanCount() > 0)
+        if (sample->ms1ScanCount() == 0)
             continue;
 
         unordered_map<int, Scan*> scanMap;
         for (auto scan : sample->scans) {
+            if (scan->mslevel > 1)
+                continue;
+
             scanMap[scan->scannum] = scan;
         }
         sampleScanMap[sample->getSampleId()] = scanMap;
@@ -1297,7 +1309,7 @@ map<string, variant> ProjectDatabase::loadSettings()
         settingsMap["reportIsotopes"] = variant(settingsQuery->integerValue("report_isotopes"));
 
         settingsMap["peakQuantitation"] = variant(settingsQuery->integerValue("peak_quantitation"));
-        settingsMap["minGroupIntensity"] = variant(settingsQuery->doubleValue("minGroupIntensity"));
+        settingsMap["minGroupIntensity"] = variant(settingsQuery->doubleValue("min_group_intensity"));
         settingsMap["intensityQuantile"] = variant(settingsQuery->integerValue("intensity_quantile"));
         settingsMap["minGroupQuality"] = variant(settingsQuery->doubleValue("min_group_quality"));
         settingsMap["qualityQuantile"] = variant(settingsQuery->integerValue("quality_quantile"));
