@@ -47,6 +47,7 @@ using namespace std;
 
 class PollyIntegration;
 class ParseOptions;
+class DownloadManager;
 
 class PeakDetectorCLI
 {
@@ -55,12 +56,6 @@ public:
         None,
         ObiWarp,
         PolyFit
-    };
-
-    enum class PollyApp {
-        None,
-        PollyPhi,
-        QuantFit
     };
 
     bool status;
@@ -76,6 +71,7 @@ public:
     AlignmentMode alignMode;
 
     PeakDetectorCLI();
+    ~PeakDetectorCLI();
 
     /**
      * [process command line Options]
@@ -219,6 +215,7 @@ public:
     }
 
 private:
+    DownloadManager* _dlManager;
     QString _pollyProject;
     QString _sampleCohortFile;
     QString _redirectTo;
@@ -275,6 +272,8 @@ private:
      * @return Redirection URL as a QString.
      */
     QString _getRedirectionUrl(QString datetimestamp, QString uploadProjectId);
+
+    bool _incompatibleWithPollyApp();
 };
 
 struct Arguments

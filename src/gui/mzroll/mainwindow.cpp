@@ -3,6 +3,7 @@
 #include <QStandardPaths>
 #include "notificator.h"
 #include "videoplayer.h"
+#include "controller.h"
 #include "background_peaks_update.h"
 #ifdef WIN32
 #include <windows.h>
@@ -125,7 +126,8 @@ void MainWindow::printvalue() {
 
 using namespace mzUtils;
 
- MainWindow::MainWindow(QWidget *parent) :
+ MainWindow::MainWindow(Controller* controller, QWidget *parent) :
+     _controller(controller),
 		QMainWindow(parent) {
 	connect( this, SIGNAL (reBoot()), this, SLOT (slotReboot()));
     m_value=0;
@@ -417,6 +419,8 @@ using namespace mzUtils;
 	// rconsoleDockWidget->setVisible(false);
 	spectralHitsDockWidget->setVisible(false);
     peptideFragmentation->setVisible(false);
+	srmDockWidget->setVisible(false);
+	isotopePlotDockWidget->setVisible(false);
 	
 	//treemap->setVisible(false);
 	//peaksPanel->setVisible(false);
@@ -836,7 +840,7 @@ void MainWindow::showNotification(TableDockWidget* table) {
     QString message("Make your analyses more insightful with Machine learning."
                     "\nView your fluxomics workflow in PollyPhi.");
 
-    if (table->groupCount() == 0 || table->labeledGroups == 0)
+    if (table->groupCount() == 0 || table->getLabeledGroupCount() == 0)
         return;
 
     Notificator* fluxomicsPrompt = Notificator::showMessage(icon,
@@ -851,7 +855,7 @@ void MainWindow::showNotification(TableDockWidget* table) {
             this,
             [=] {
                 analytics->hitEvent("Prompt", "Clicked", "PollyPhi");
-                pollyElmavenInterfaceDialog->switchToApp(PollyApp::Fluxomics);
+                pollyElmavenInterfaceDialog->switchToApp(PollyApp::PollyPhi);
             });
     connect(fluxomicsPrompt,
             SIGNAL(promptClicked(TableDockWidget*)),
@@ -994,7 +998,7 @@ void MainWindow::threadSave(QString filename)
 
     QFileInfo fileInfo(filename);
     setWindowTitle(programName
-                   + "_"
+                   + " "
                    + STR(EL_MAVEN_VERSION)
                    + " "
                    + fileInfo.fileName());
@@ -1094,7 +1098,7 @@ void MainWindow::saveProject(bool explicitSave)
             _latestUserProjectName = _currentProjectName;
             QFileInfo fileInfo(_latestUserProjectName);
             setWindowTitle(programName
-                           + "_"
+                           + " "
                            + STR(EL_MAVEN_VERSION)
                            + " "
                            + fileInfo.fileName());
@@ -1419,7 +1423,8 @@ vector<mzSample*> MainWindow::getVisibleSamples() {
 		if (samples[i] && samples[i]->isSelected) {
 			vsamples.push_back(samples[i]);
 		}
-	}
+    }
+    sort(begin(vsamples), end(vsamples), mzSample::compSampleOrder);
 	return vsamples;
 }
 
@@ -1741,7 +1746,7 @@ void MainWindow::open()
 
     // Changing the title of the main window after selecting the samples
     setWindowTitle(programName
-                   + "_"
+                   + " "
                    + STR(EL_MAVEN_VERSION)
                    + " "
                    + fileInfo.fileName());
@@ -1755,6 +1760,7 @@ void MainWindow::open()
             emdbProjectBeingLoaded = fileLoader->swapFilenameExtension(filename,
                                                                        "emDB");
             analytics->hitEvent("Project Load", "mzrollDB");
+            quantType->setCurrentText("AreaTopNotCorrected");
         } else if (fileLoader->isMzRollProject(filename)) {
             analytics->hitEvent("Project Load", "mzroll");
         }
@@ -1770,7 +1776,7 @@ void MainWindow::open()
         // SQLite project
         QFileInfo fileInfo(_latestUserProjectName);
         setWindowTitle(programName
-                       + "_"
+                       + " "
                        + STR(EL_MAVEN_VERSION)
                        + " "
                        + fileInfo.fileName());
@@ -2980,6 +2986,13 @@ void MainWindow::createToolBars() {
             SIGNAL(valueChanged(double)),
             this,
             SLOT(setUserMassCutoff(double)));
+    void (QDoubleSpinBox::* doubleChanged)(double) = &QDoubleSpinBox::valueChanged;
+    connect(massCutoffWindowBox,
+            doubleChanged,
+            [=] (double value) {
+                if (!peakDetectionDialog->isVisible())
+                    peakDetectionDialog->compoundPPMWindow->setValue(value);
+            });
     massCutoffWindowBox->setValue(settings->value("massCutoffWindowBox").toDouble());
 
     searchText = new QLineEdit(hBox);
@@ -3640,7 +3653,7 @@ void MainWindow::showFragmentationScans(float pmz)
             continue;
 
         for (auto scan : sample->scans) {
-	        if (scan->mslevel < 2) continue;
+	        if (scan->mslevel != 2) continue;
 	        if (massCutoffDist(scan->precursorMz,
                                pmz,
                                massCutoff) > massCutoff->getMassCutoff()) {

@@ -1,34 +1,73 @@
 #include "pollyintegration.h"
+#include <common/downloadmanager.h>
+#include <QTemporaryFile>
 
-PollyIntegration::PollyIntegration(): nodePath(""), jsPath("")
+PollyIntegration::PollyIntegration(DownloadManager* dlManager):
+    _dlManager(dlManager),
+    nodePath(""),
+    jsPath(""),
+    _fPtr(nullptr)
 {
     credFile = QStandardPaths::writableLocation(QStandardPaths::QStandardPaths::GenericConfigLocation) + QDir::separator() + "cred_file";
 
     // It's important to look for node in the system first, as it might not always be present in the bin dir.
      nodePath = QStandardPaths::findExecutable("node");
-    jsPath = qApp->applicationDirPath() + QDir::separator() + "index.js";
 
     #ifdef Q_OS_WIN
       if(!QStandardPaths::findExecutable("node", QStringList() << qApp->applicationDirPath()).isEmpty())
         nodePath = qApp->applicationDirPath() + QDir::separator() + "node.exe";
+      nodeModulesPath = qApp->applicationDirPath() + QDir::separator() + "node_modules" + QDir::separator();
     #endif
 
     #ifdef Q_OS_LINUX
       if(!QStandardPaths::findExecutable("node", QStringList() << qApp->applicationDirPath()).isEmpty())
           nodePath = qApp->applicationDirPath() + QDir::separator() + "node";
+      nodeModulesPath = qApp->applicationDirPath() + QDir::separator() + "node_modules" + QDir::separator();
     #endif
 
     #ifdef Q_OS_MAC
       QString binDir = qApp->applicationDirPath() + QDir::separator() + ".." + QDir::separator() + ".." + QDir::separator() + ".." + QDir::separator();
       if(!QStandardPaths::findExecutable("node", QStringList() << binDir + "node_bin" + QDir::separator() ).isEmpty())
         nodePath = binDir + "node_bin" + QDir::separator() + "node";
-
-      jsPath = binDir  + "index.js";
+      nodeModulesPath = binDir + "node_modules" + QDir::separator();
     #endif
+
+    indexFileURL = "https://raw.githubusercontent.com/ElucidataInc/polly-cli/master/prod/index.js";
+    _dlManager->setRequest(indexFileURL, this);
+}
+
+void PollyIntegration::requestSuccess()
+{
+    _fPtr = new QTemporaryFile();
+    _fPtr->setFileTemplate(QDir::tempPath() + QDir::separator() + "index.js");
+    if(_fPtr->open()) {
+        _fPtr->write(_dlManager->getData());
+        qDebug() << "data written to file: " << _fPtr->fileName();
+        jsPath = _fPtr->fileName();
+    } else {
+        jsPath = "";
+        qDebug() << "unable to open temp file: " << _fPtr->errorString();
+    }
+    _fPtr->close();
+}
+
+void PollyIntegration::requestFailed()
+{
+    jsPath = "";
+    qDebug() << "failed to download file";
 }
 
 PollyIntegration::~PollyIntegration()
 {
+    if(_fPtr != nullptr) {
+        if(_fPtr->remove())
+            qDebug() << "removed file";
+        else {
+            qDebug() << "error: " << _fPtr->error();
+            qDebug() << _fPtr->errorString();
+        }
+        delete _fPtr;
+    }
     qDebug()<<"exiting PollyIntegration now....";
 }
 
@@ -36,12 +75,32 @@ QString PollyIntegration::getCredFile(){
     return credFile;
 }
 
+void PollyIntegration::checkForIndexFile()
+{
+    if(!_fPtr || !_fPtr->exists()) {
+            qDebug() << "Index file not found, trying to download index file ";
+            // synchronous request;
+            _dlManager->setRequest(indexFileURL, this, false);
+            if(!_dlManager->err) {
+                requestSuccess();
+            } else {
+                requestFailed();
+            }
+    }
+}
+
 QList<QByteArray> PollyIntegration::runQtProcess(QString command, QStringList args){
 
     // e.g: command = "authenticate", "get_Project_names" etc
     // e.g: args = username, password, projectName  etc
+
+    checkForIndexFile();
+    if(jsPath == "")
+        return QList<QByteArray>();
+
     QProcess process;
     QStringList arg;
+    qDebug() << "js file being used: " << jsPath;
     arg << jsPath; // where index.js files is placed
     arg << command; // what command to pass to index.js. eg. authenticate
     arg << args; // required params by that command . eg username, password
@@ -49,6 +108,10 @@ QList<QByteArray> PollyIntegration::runQtProcess(QString command, QStringList ar
     // qDebug()<<"args -"<<arg;
 
     // nodePath = "PATH_OF_MAVEN/bin/node.exe"
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert("NODE_PATH", nodeModulesPath);
+
+    process.setProcessEnvironment(env);
     process.setProgram(nodePath);
     process.setArguments(arg);
 
@@ -74,11 +137,121 @@ QString PollyIntegration::parseId(QByteArray result){
     return run_id;
 }
 
-QString PollyIntegration::obtainComponentId(QString componentName)
+QPair<ErrorStatus, QMap<QString, QStringList>> PollyIntegration::_fetchAppLicense() {
+    QString command = "fetchAppLicense";
+    QList<QByteArray> resultAndError = runQtProcess(command,
+                                                    QStringList() << credFile);
+
+    QMap <QString, QStringList> appLicenses;
+    if (_hasError(resultAndError)) {
+        return qMakePair(ErrorStatus::Error, appLicenses);
+    }
+
+    QByteArray result = resultAndError.at(0);
+    QStringList resultList = QString::fromStdString(result.toStdString()).split('\n');
+    for (int i = 0; i < resultList.length(); i++) {
+        auto temp = resultList[i];
+        if (temp.contains("components")) {
+            temp = resultList[++i];
+            appLicenses["components"] = temp.remove(QRegExp("[\\[\\] ]")).split(',');
+        }
+        if (temp.contains("workflows")) {
+            temp = resultList[++i];
+            appLicenses["workflows"] = temp.remove(QRegExp("[\\[\\] ]")).split(',');
+        }
+        if (temp.contains("license")) {
+            temp = resultList[++i];
+            appLicenses["licenseActive"] = temp.remove(QRegExp("[\\[\\] ]")).split(',');
+        }
+    }
+
+    if (appLicenses.isEmpty())
+        return qMakePair(ErrorStatus::Failure, appLicenses);
+    else
+        return qMakePair(ErrorStatus::Success, appLicenses);
+}
+
+QMap<PollyApp, bool> PollyIntegration::getAppLicenseStatus()
+{
+    QMap<PollyApp, QString> appsWithTypes = {
+        {PollyApp::FirstView, "components"},
+        {PollyApp::PollyPhi, "workflows"},
+        {PollyApp::QuantFit, "components"}
+    };
+
+    auto errorAndResponse = _fetchAppLicense();
+    ErrorStatus error = errorAndResponse.first;
+    auto appLicenses = errorAndResponse.second;
+    QMap<PollyApp, bool> appLicenseStatus;
+
+    if (error == ErrorStatus::Error ||
+        error == ErrorStatus::Failure) {
+        appLicenseStatus = {
+            {PollyApp::FirstView, false},
+            {PollyApp::PollyPhi, false},
+            {PollyApp::QuantFit, false}
+        };
+        return appLicenseStatus;
+    }
+
+    QMapIterator<PollyApp, QString> it(appsWithTypes);
+    while (it.hasNext()) {
+        it.next();
+        PollyApp app = it.key();
+        QString type = it.value();
+        QString componentId;
+
+        if (type == "components")
+            componentId = obtainComponentId(app);
+        else if (type == "workflows")
+            componentId = obtainWorkflowId(app);
+
+        if (appLicenses.value(type).contains(componentId)
+            && appLicenses.value("licenseActive")[0] != "0") {
+            appLicenseStatus[app] = true;
+        } else {
+            appLicenseStatus[app] = false;
+        }
+    }
+    return appLicenseStatus;
+}
+
+QString PollyIntegration::stringForApp(PollyApp app)
+{
+    if (app == PollyApp::FirstView) {
+        return "FirstView";
+    } else if (app == PollyApp::PollyPhi) {
+        return "PollyPhi";
+    } else if (app == PollyApp::QuantFit) {
+        return "QuantFit";
+    }
+    return "";
+}
+
+QString PollyIntegration::obtainComponentName(PollyApp app)
+{
+    QString command = "getComponentName";
+    QString componentName = "";
+    QList<QByteArray> resultAndError = runQtProcess(command,
+                                                    QStringList() << stringForApp(app)
+                                                                  << credFile);
+   if (_hasError(resultAndError))
+        return componentName;
+
+    QByteArray result = resultAndError.at(0);
+    QList<QByteArray> resultList = result.split('\n');
+    componentName = QString(resultList.at(0).split(' ').at(1));
+    return componentName;
+}
+
+QString PollyIntegration::obtainComponentId(PollyApp app)
 {
     QString command = "getComponentId";
     QList<QByteArray> resultAndError = runQtProcess(command,
                                                     QStringList() << credFile);
+    if (_hasError(resultAndError))
+        return QString::number(-1);
+
     QByteArray result = resultAndError.at(0);
 
     // replace doubly escaped quotes
@@ -92,12 +265,39 @@ QString PollyIntegration::obtainComponentId(QString componentName)
     result = result.right(result.size() - 1);
     result = result.left(result.size() - 1);
 
+    QString componentName = obtainComponentName(app);
     QJsonDocument doc(QJsonDocument::fromJson(result));
     auto array = doc.array();
     for (auto elem : array) {
         auto jsonObject = elem.toObject();
         auto name = jsonObject.value("component").toString();
         if (name == componentName)
+            return QString::number(jsonObject.value("id").toInt());
+    }
+    return QString::number(-1);
+}
+
+QString PollyIntegration::obtainWorkflowId(PollyApp app)
+{
+    QString command = "getWorkflowId";
+    QList<QByteArray> resultAndError = runQtProcess(command,
+                                                    QStringList() << credFile);
+    if (_hasError(resultAndError))
+        return QString::number(-1);
+
+    QByteArray result = resultAndError.at(0);
+
+    // split based on newlines, JSON is second last string after split
+    QList<QByteArray> resultList = result.split('\n');
+    result = resultList[resultList.size() - 2];
+
+    QString workflowName = obtainComponentName(app);
+    QJsonDocument doc(QJsonDocument::fromJson(result));
+    auto array = doc.array();
+    for (auto elem : array) {
+        auto jsonObject = elem.toObject();
+        auto name = jsonObject.value("workflow").toString();
+        if (name == workflowName)
             return QString::number(jsonObject.value("id").toInt());
     }
     return QString::number(-1);
@@ -114,53 +314,76 @@ QStringList PollyIntegration::get_project_upload_url_commands(QString url_with_w
         QString copy_url_with_wildcard = url_with_wildcard;
         QString url_map_json = copy_url_with_wildcard.replace("*", new_filename) ;
         QString upload_command = "upload_project_data";
-        QList<QByteArray> patch_id_result_and_error = runQtProcess(upload_command, QStringList() << url_map_json << filename);
-        patchId.append(patch_id_result_and_error.at(0));
+        QList<QByteArray> resultAndError = runQtProcess(upload_command, QStringList() << url_map_json << filename);
+        
+        if (_hasError(resultAndError))
+            return patchId;
+
+        patchId.append(resultAndError.at(0));
     }
     return patchId;
 }
 
-// name OF FUNCTION: get_projectFiles_download_url_commands
-// PURPOSE:
-//    This function parses the output of "createproject" command run from Qtprocess..
-// Return project id for the new project..
-// CALLS TO: runQtProcess
-//
-// CALLED FROM: loadDataFromPolly
-
-QStringList PollyIntegration::get_projectFiles_download_url_commands(QByteArray result2,QStringList filenames){
-    QStringList patchId ;
-    QList<QByteArray> test_list = result2.split('\n');
-    int size = test_list.size();
-    QByteArray url_jsons = test_list[size-2];
-    QJsonDocument doc(QJsonDocument::fromJson(url_jsons));
-    // Get JSON object
-    QJsonObject json = doc.object();
-    QVariantMap json_map = json.toVariantMap();
-    for (int i=0; i < filenames.size(); ++i){
-        QString filename = filenames.at(i);
-        QStringList test_files_list = filename.split(QDir::separator());
-        int size = test_files_list.size();
-        QString new_filename = test_files_list[size-1];
-        QString url_with_wildcard =  json_map["file_upload_urls"].toString();
-        QString url_map_json = url_with_wildcard.replace("*",new_filename) ;
-        QString upload_command = "download_project_data";
-        QList<QByteArray> result_and_error = runQtProcess(upload_command,QStringList() <<url_map_json <<filename);
-        patchId.append(result_and_error.at(0));
-    }
-    return patchId;
-}
-
-bool PollyIntegration::activeInternet()
+bool PollyIntegration::_hasError(QList<QByteArray> resultAndError)
 {
-    QString command = QString("check_internet_connection");
-    QList<QByteArray> results = runQtProcess(command, QStringList()).at(0).split('\n');
-    QString status = results[1];
-    if (status == "Connected") {
+    QString supportMessage = "Contact tech support at elmaven@elucidata.io if the problem persists";
+    if (resultAndError.size() > 1) {
+        //if there is standard error look for error message
+        QByteArray errorResponse = resultAndError.at(1);
+
+        QJsonDocument doc(QJsonDocument::fromJson(errorResponse));
+        QJsonObject jsonObj = doc.object();
+        QString message;
+        QString type;
+        for (auto key : jsonObj.keys()) {
+            if (key == "message") {
+                message = jsonObj[key].toString();
+            }
+            if (key == "type") {
+                type = jsonObj[key].toString();
+            }
+        }
+
+        if (!message.isEmpty() || !type.isEmpty()) {
+            QString errorMessage = message + "\n" +
+                                   type + "\n" +
+                                   supportMessage;
+            emit receivedEPIError(errorMessage);
+            return true;
+        }
+
+        //if proper error message is not available
+        //send full error response from js process
+        QString errorString = QString::fromStdString(errorResponse.toStdString());
+        errorString.replace("\n", "");
+        if (!errorString.isEmpty()) {
+            QString errorMessage = "Unknown error: " + errorString + "\n" +
+                                   supportMessage;
+            emit receivedEPIError(errorMessage);
+            return true;
+        }
+    } else if (resultAndError.size() == 0) {
+        //no response or error
+        emit receivedEPIError("Error: QProcess failure.\n" + supportMessage);
         return true;
     }
 
-    return false; 
+    return false;
+}
+
+ErrorStatus PollyIntegration::activeInternet()
+{
+    QString command = QString("check_internet_connection");
+    QList<QByteArray> resultAndError = runQtProcess(command, QStringList());
+    if (_hasError(resultAndError))
+        return ErrorStatus::Error;
+
+    QList<QByteArray> results = resultAndError.at(0).split('\n');
+    QString status = results[1];
+    if (status == "Connected") {
+        return ErrorStatus::Success;
+    }
+    return ErrorStatus::Failure; 
 }
 
 // name OF FUNCTION: checkLoginStatus
@@ -172,24 +395,26 @@ bool PollyIntegration::activeInternet()
 //
 // CALLED FROM: authenticateLogin
 
-int PollyIntegration::checkLoginStatus(){
-    int status;
+ErrorStatus PollyIntegration::checkLoginStatus() {
     QString command = QString("authenticate");
     QList<QByteArray> resultAndError = runQtProcess(command, QStringList() << credFile);
+
+    if (_hasError(resultAndError))
+        return ErrorStatus::Error;
+
     QList<QByteArray> testList = resultAndError.at(0).split('\n');
     QByteArray statusLine = testList[0];
     if (statusLine == "already logged in") {
-        status = 1;
 
         // logged in successfully, there must be a user email
         QByteArray userline = testList[1];
         QList<QByteArray> split = userline.split(' ');
         _username = QString(split.back());
+        return ErrorStatus::Success;
     }
     else {
-        status = 0;
+        return ErrorStatus::Failure;
     }
-    return status;
 }
 
 // name OF FUNCTION: authenticateLogin
@@ -204,22 +429,14 @@ int PollyIntegration::checkLoginStatus(){
 // CALLED FROM: external clients
 
 
-QString PollyIntegration::authenticateLogin(QString username, QString password) {
+ErrorStatus PollyIntegration::authenticateLogin(QString username, QString password) {
     QString command = "authenticate";
-    QString status;
     
     QList<QByteArray> resultAndError = runQtProcess(command, QStringList() << credFile << username << password);
-    int statusInside = checkLoginStatus();
-    if (statusInside == 1) {
-        status = "ok";
-    }
-    else if (resultAndError.at(1) != "") {
-        status = "error";
-    }
-    else {
-        status = "incorrect credentials";
-    }
-    return status;
+    if (_hasError(resultAndError))
+        return ErrorStatus::Error;
+
+    return checkLoginStatus();
 }
 
 QString PollyIntegration::getCurrentUsername()
@@ -256,33 +473,6 @@ void PollyIntegration::logout() {
     QFile refreshTokenFile (credFile + "_refreshToken");
     refreshTokenFile.remove();
 }
-// name OF FUNCTION: getUserProjectsMap
-// PURPOSE:
-//    This function parses the output of "get_Project_names" command and store it in a json format to be used later..
-// When the user selects a project on Elmaven GUI, this json will be used to get ID for that project
-// This ID will then further be used for uploading and all..
-
-// Returns user projects in json format with id as keys and name as values..
-// CALLS TO: 
-//
-// CALLED FROM: getUserProjects
-
-QVariantMap PollyIntegration::getUserProjectsMap(QByteArray result2) {
-    QVariantMap userProjects;
-    QList<QByteArray> testList = result2.split('\n');
-    int size = testList.size();
-    QByteArray resultJsons = testList[size-2];
-    QJsonDocument doc(QJsonDocument::fromJson(resultJsons));
-    // Get JSON object
-    QJsonArray jsonArray = doc.array();
-    for (int i = 0; i < jsonArray.size(); ++i){
-        QJsonValue projectJson = jsonArray.at(i);
-        QJsonObject projectJsonObject = projectJson.toObject();
-        QVariantMap projectJsonObjectMap = projectJsonObject.toVariantMap();
-        userProjects[projectJsonObjectMap["id"].toString()] = projectJsonObjectMap["name"].toString();
-    }
-    return userProjects;
-}
 
 // name OF FUNCTION: getUserProjects
 // PURPOSE:
@@ -299,9 +489,22 @@ QVariantMap PollyIntegration::getUserProjectsMap(QByteArray result2) {
 
 
 QVariantMap PollyIntegration::getUserProjects() {
+    QVariantMap userProjects;
     QString getProjectsCommand = "get_Project_names";
     QList<QByteArray> resultAndError = runQtProcess(getProjectsCommand, QStringList() << credFile);
-    QVariantMap userProjects = getUserProjectsMap(resultAndError.at(0));
+    if (_hasError(resultAndError))
+        return userProjects;
+
+    QList<QByteArray> testList = resultAndError.at(0).split('\n');
+    QByteArray resultJsons = testList[testList.size() - 2];
+    QJsonDocument doc(QJsonDocument::fromJson(resultJsons));
+    // Get JSON object
+    QJsonArray jsonArray = doc.array();
+    for (int i = 0; i < jsonArray.size(); ++i) {
+        QJsonValue projectJson = jsonArray.at(i);
+        QVariantMap projectMap = projectJson.toObject().toVariantMap();
+        userProjects[projectMap["id"].toString()] = projectMap["name"].toString();
+    }
     return userProjects;
 }
 
@@ -345,6 +548,9 @@ QVariantMap PollyIntegration::getUserProjectFiles(QStringList projectIds) {
         QString projectId = projectIds.at(i);
         QString getProjectsCommand = "get_Project_files";
         QList<QByteArray> resultAndError = runQtProcess(getProjectsCommand, QStringList() << credFile << projectId);
+        if (_hasError(resultAndError))
+            return userProjectfilesmap;
+
         QStringList userProjectfiles = getUserProjectFilesMap(resultAndError.at(0));
         userProjectfilesmap[projectId] = userProjectfiles;
     }
@@ -361,43 +567,70 @@ QVariantMap PollyIntegration::getUserProjectFiles(QStringList projectIds) {
 
 
 QString PollyIntegration::createProjectOnPolly(QString projectname) {
+    QString runId;
     QString command2 = "createProject";
     QList<QByteArray> resultAndError = runQtProcess(command2, QStringList() << credFile << projectname);
-    QString runId = parseId(resultAndError.at(0));
+    if (_hasError(resultAndError))
+        return runId;
+
+    runId = parseId(resultAndError.at(0));
     return runId;
 }
 
-QString PollyIntegration::createWorkflowRequest(QString projectId){
+QString PollyIntegration::createWorkflowRequest(QString projectId,
+                                                QString workflowName,
+                                                QString workflowId) {
+    QString workflowRequestId;
     QString command2 = "createWorkflowRequest";
-    QList<QByteArray> resultAndError = runQtProcess(command2, QStringList() << credFile << projectId);
-    QString workflowRequestId = parseId(resultAndError.at(0));
+    QList<QByteArray> resultAndError = runQtProcess(command2, QStringList() << credFile 
+                                                                            << projectId
+                                                                            << workflowName
+                                                                            << workflowId);
+    if (_hasError(resultAndError))
+        return workflowRequestId;
+
+    workflowRequestId = parseId(resultAndError.at(0));
     return workflowRequestId;
 }
 
 QString PollyIntegration::createRunRequest(QString componentId,
                                            QString projectId)
 {
+    QString runId;
     QString command = "createRunRequest";
     QStringList arguments = QStringList() << credFile
                                           << componentId
                                           << projectId;
     QList<QByteArray> resultAndError = runQtProcess(command, arguments);
-    QString runId = parseId(resultAndError.at(0));
+    if (_hasError(resultAndError))
+        return runId;
+
+    runId = parseId(resultAndError.at(0));
     return runId;
 }
 
-QString PollyIntegration::redirectionUiEndpoint(QString componentId,
-                                                QString runId,
-                                                QString datetimestamp)
+QByteArray PollyIntegration::redirectionUiEndpoint()
 {
+    QByteArray result;
     QString command = "getEndpointForRuns";
     QList<QByteArray> resultAndError = runQtProcess(command, QStringList(credFile));
+    if (_hasError(resultAndError))
+        return result;
 
-    QByteArray result = resultAndError.at(0);
+    result = resultAndError.at(0);
 
     // split based on newlines, JSON is second last string after split
     QList<QByteArray> resultList = result.split('\n');
     result = resultList[resultList.size() - 2];
+
+    return result;
+}
+
+QString PollyIntegration::getComponentEndpoint(QString componentId,
+                                               QString runId,
+                                               QString datetimestamp)
+{
+    QByteArray result = redirectionUiEndpoint();
 
     QJsonDocument doc(QJsonDocument::fromJson(result));
     auto array = doc.array();
@@ -414,7 +647,32 @@ QString PollyIntegration::redirectionUiEndpoint(QString componentId,
     return "";
 }
 
-bool PollyIntegration::sendEmail(QString userEmail,
+QString PollyIntegration::getWorkflowEndpoint(QString workflowId,
+                                              QString workflowRequestId,
+                                              QString landingPage,
+                                              QString uploadProjectIdThread,
+                                              QString datetimestamp)
+{
+    QByteArray result = redirectionUiEndpoint();
+
+    QJsonDocument doc(QJsonDocument::fromJson(result));
+    auto array = doc.array();
+    for (auto elem : array) {
+        auto jsonObject = elem.toObject();
+        auto id = QString::number(jsonObject.value("workflow_id").toInt());
+        if (id == workflowId) {
+            auto url = jsonObject.value("url").toString();
+            url = url.replace("<workflowRequestId>", workflowRequestId)
+                     .replace("<landingPage>", landingPage)
+                     .replace("<uploadProjectIdThread>", uploadProjectIdThread)
+                     .replace("<datetimestamp>", datetimestamp);
+            return url;
+        }
+    }
+    return "";
+}
+
+ErrorStatus PollyIntegration::sendEmail(QString userEmail,
                                  QString emailMessage,
                                  QString emailContent,
                                  QString appName)
@@ -426,15 +684,18 @@ bool PollyIntegration::sendEmail(QString userEmail,
                                                                   << emailMessage
                                                                   << emailContent
                                                                   << appName);
+    if (_hasError(resultAndError))
+        return ErrorStatus::Error;
+
     QList<QByteArray> testList = resultAndError.at(0).split('\n');
     int size = testList.size();
     if (size > 2) {
         QByteArray result2 = testList[size-2];
         if (result2 == "1")
-            return true;
+            return ErrorStatus::Success;
     }
 
-    return false;
+    return ErrorStatus::Failure;
 }
 
 // name OF FUNCTION: exportData
@@ -448,17 +709,22 @@ bool PollyIntegration::sendEmail(QString userEmail,
 // CALLED FROM: external clients
 
 
-QStringList PollyIntegration::exportData(QStringList filenames, QString projectId) {
+QPair<ErrorStatus, QStringList> PollyIntegration::exportData(QStringList filenames, QString projectId) {
     qDebug() << "files to be uploaded " << filenames;
+    QStringList patchId;
+
     QElapsedTimer timer;
     timer.start();
     QString get_upload_Project_urls = "get_upload_Project_urls";
-    QList<QByteArray> result_and_error = runQtProcess(get_upload_Project_urls, QStringList() << credFile << projectId);
-    QString url_with_wildcard = getFileUploadURLs(result_and_error.at(0));    
-    QStringList patchId = get_project_upload_url_commands(url_with_wildcard, filenames);
+    QList<QByteArray> resultAndError = runQtProcess(get_upload_Project_urls, QStringList() << credFile << projectId);
+    if (_hasError(resultAndError))
+        return qMakePair(ErrorStatus::Error, patchId);
+
+    QString url_with_wildcard = getFileUploadURLs(resultAndError.at(0));
+    patchId = get_project_upload_url_commands(url_with_wildcard, filenames);
     qDebug() << "time taken in uploading json file, by polly cli is - " << timer.elapsed();
     
-    return patchId;
+    return qMakePair(ErrorStatus::Success, patchId);
 }
 
 QString PollyIntegration::getFileUploadURLs(QByteArray result2) {
@@ -474,48 +740,28 @@ QString PollyIntegration::getFileUploadURLs(QByteArray result2) {
     return url_with_wildcard;
 }
 
-QString PollyIntegration::UploadToCloud(QString uploadUrl, QString filePath){
+ErrorStatus PollyIntegration::UploadToCloud(QString uploadUrl, QString filePath)
+{
     QString upload_command = "uploadCuratedPeakDataToCloud";
-    QList<QByteArray> patch_id_result_and_error = runQtProcess(upload_command, QStringList() << uploadUrl << filePath);
-    QString status = "success";
-    return status;
+    QList<QByteArray> resultAndError = runQtProcess(upload_command, QStringList() << uploadUrl << filePath);
+    if (_hasError(resultAndError))
+        return ErrorStatus::Error;
+
+    return ErrorStatus::Success;
 }
 
-QString PollyIntegration::UploadPeaksToCloud(QString session_indentifier, QString fileName, QString filePath){
+ErrorStatus PollyIntegration::UploadPeaksToCloud(QString session_indentifier, QString fileName, QString filePath){
     QElapsedTimer timer;
     timer.start();
     QString command = "getPeakUploadUrls";
-    QList<QByteArray> result_and_error = runQtProcess(command, QStringList() << session_indentifier << fileName);
-    QString uploadUrl = getFileUploadURLs(result_and_error.at(0));
-    QString status = UploadToCloud(uploadUrl, filePath);
+    QList<QByteArray> resultAndError = runQtProcess(command, QStringList() << session_indentifier << fileName);
+    if (_hasError(resultAndError))
+        return ErrorStatus::Error;
+
+    QString uploadUrl = getFileUploadURLs(resultAndError.at(0));
+    ErrorStatus status = UploadToCloud(uploadUrl, filePath);
     qDebug() << "time taken in uploading json file, by polly cli is - " << timer.elapsed();
     return status;
-}
-
-// name OF FUNCTION: loadDataFromPolly
-// PURPOSE:
-//    This function downloads the specified files for a given projects..
-// External clients can then use those files to load data back to Elmaven..
-
-// CALLS TO: runQtProcess,get_projectFiles_download_url_commands
-//
-// CALLED FROM: external clients
-
-
-
-QString PollyIntegration::loadDataFromPolly(QString ProjectId,QStringList filenames) {
-    QString get_upload_Project_urls = "get_upload_Project_urls";
-    QList<QByteArray> result_and_error = runQtProcess(get_upload_Project_urls, QStringList() << credFile << ProjectId);
-    QStringList patchId = get_projectFiles_download_url_commands(result_and_error.at(0),filenames);
-    if (0<filenames.size()&&!patchId.isEmpty()){
-        return "project data loaded";
-    }
-    else if(0<filenames.size()&&patchId.isEmpty()){
-        return "error while loading project";
-    }
-    else{
-        return "no file selected to laod";
-    }
 }
 
 bool PollyIntegration::validSampleCohort(QString sampleCohortFile, QStringList loadedSamples) {
@@ -578,16 +824,4 @@ bool PollyIntegration::validCohorts(QStringList cohorts) {
 		return false;
 	
 	return true;
-}
-
-QStringList PollyIntegration::parseResultOrganizationalDBs(QString result){
-    QStringList OrganizationalDBs;
-
-    return OrganizationalDBs;
-}
-QStringList PollyIntegration::getOrganizationalDBs(QString organization){
-    QString command = "get_organizational_databases";
-    QList<QByteArray> result_and_error = runQtProcess(command, QStringList() << credFile << organization);
-    QStringList OrganizationalDBs = parseResultOrganizationalDBs(result_and_error.at(0));    
-    return OrganizationalDBs;
 }

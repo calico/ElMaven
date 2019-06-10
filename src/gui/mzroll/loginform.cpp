@@ -1,6 +1,7 @@
 #include "loginform.h"
 #include "ui_loginform.h"
 #include <QMessageBox>
+#include "controller.h"
 
 
 LoginForm::LoginForm(PollyElmavenInterfaceDialog* pollyelmaveninterfacedialog) :
@@ -10,6 +11,7 @@ LoginForm::LoginForm(PollyElmavenInterfaceDialog* pollyelmaveninterfacedialog) :
     
 {
     _pollyelmaveninterfacedialog = pollyelmaveninterfacedialog;
+    _pollyintegration = _pollyelmaveninterfacedialog->getMainWindow()->getController()->iPolly;
     
     ui->setupUi(this);
     setWindowTitle("Sign in to Polly™");
@@ -37,27 +39,29 @@ LoginForm::~LoginForm()
     if (_aboutPolly) delete (_aboutPolly);
 }
 
-WorkerThread::WorkerThread()
+void LoginForm::login(QString username, QString password)
 {
-    _pollyintegration = new PollyIntegration();   
-    
-};
-
-void WorkerThread::run()
-{
-    QString status;
-    if (!_pollyintegration->activeInternet())
-        status = "error";
-    else
-        status = _pollyintegration->authenticateLogin(username, password);
-    
-    emit resultReady(status);
+    ErrorStatus response = _pollyintegration->authenticateLogin(username, password);
+    if (response == ErrorStatus::Success) {
+        qDebug() << "Logged in, moving on now…";
+        ui->login_label->setText("Fetching user data…");
+        QCoreApplication::processEvents();
+        _pollyelmaveninterfacedialog->startupDataLoad();
+        _pollyelmaveninterfacedialog->usernameLabel->setText(username);
+        hide();
+        _pollyelmaveninterfacedialog->show();
+    } else if (response == ErrorStatus::Failure) {
+        QCoreApplication::processEvents();
+        ui->login_label->setStyleSheet("QLabel {color : red; }");
+        ui->login_label->setText("Incorrect credentials");
+        ui->pushButton->setEnabled(true);
+    } else {
+        QCoreApplication::processEvents();
+        ui->login_label->setStyleSheet("Qlabel {color : green; }");
+        ui->login_label->clear();
+        ui->pushButton->setEnabled(true);
+    }
 }
-
-WorkerThread::~WorkerThread()
-{
-    if (_pollyintegration) delete (_pollyintegration);
-};
 
 void LoginForm::on_pushButton_clicked()
 {   
@@ -67,33 +71,24 @@ void LoginForm::on_pushButton_clicked()
     ui->pushButton->setEnabled(false);
     QCoreApplication::processEvents();
 
-    WorkerThread *workerThread = new WorkerThread();
-    connect(workerThread, SIGNAL(resultReady(QString)), this, SLOT(handleResults(QString)));
-    connect(workerThread, &WorkerThread::finished, workerThread, &QObject::deleteLater);
-    workerThread->username= ui->lineEdit_username->text();
-    workerThread->password = ui->lineEdit_password->text();
-    workerThread->start();
+    if (checkInternetConnectivity()) {
+        login(ui->lineEdit_username->text(), ui->lineEdit_password->text());
+    }
 }
 
-void LoginForm::handleResults(QString status)
+bool LoginForm::checkInternetConnectivity()
 {
-    if (status == "ok") {
-        qDebug() << "Logged in, moving on now…";
-        ui->login_label->setText("Fetching user data…");
-        QCoreApplication::processEvents();
-        _pollyelmaveninterfacedialog->startupDataLoad();
-        hide();
-        _pollyelmaveninterfacedialog->show();
-        
-    } else if (status == "error") {
+    ErrorStatus response = _pollyintegration->activeInternet();
+    if (response == ErrorStatus::Success) {
+        return true;
+    } else if (response == ErrorStatus::Failure) {
         ui->login_label->setStyleSheet("QLabel {color : red; }");
         ui->login_label->setText("Please check your internet");
         ui->pushButton->setEnabled(true);
-    } else {
-        ui->login_label->setStyleSheet("QLabel {color : red; }");
-        ui->login_label->setText("Incorrect credentials");
-        ui->pushButton->setEnabled(true);
+        return false;
     }
+
+    return false;
 }
 
 void LoginForm::cancel()

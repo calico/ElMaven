@@ -31,7 +31,6 @@ public:
   QTreeWidget *treeWidget;
   QLabel *titlePeakTable;
   JSONReports *jsonReports;
-  int labeledGroups = 0;
   int numberOfGroupsMarked = 0;
   QString writableTempS3Dir;
   /**
@@ -49,7 +48,13 @@ public:
   int uploadCount = 0;
 
   enum tableViewType { groupView = 0, peakView = 1 };
-  enum peakTableSelectionType { Selected = 0, Whole = 1, Good = 2, Bad = 3 };
+  enum peakTableSelectionType {
+      Selected = 0,
+      Whole = 1,
+      Good = 2,
+      Bad = 3,
+      NotBad = 4
+  };
 
   /**
    * @brief Construct and initialize a TableDockWidget.
@@ -92,6 +97,18 @@ public:
    */
   float extractMaxIntensity(PeakGroup *group);
 
+  /**
+   * @brief Get the number of targeted groups in this peak table.
+   * @return Targeted group count as integer.
+   */
+  int getTargetedGroupCount();
+
+  /**
+   * @brief Get the number of labeled groups in this peak table.
+   * @return Targeted group count as integer.
+   */
+  int getLabeledGroupCount();
+
 public Q_SLOTS:
   void updateCompoundWidget();
   PeakGroup *addPeakGroup(PeakGroup *group);
@@ -131,9 +148,12 @@ public Q_SLOTS:
     peakTableSelection = peakTableSelectionType::Bad;
   };
 
+  inline void excludeBadPeakSet() {
+      peakTableSelection = peakTableSelectionType::NotBad;
+  };
+
   void exportJson();
   void UploadPeakBatchToCloud();
-  void StartUploadPeakBatchToCloud();
   void showSelectedGroup();
   void setGroupLabel(char label);
   void showLastGroup();
@@ -190,6 +210,8 @@ public Q_SLOTS:
 protected:
   MainWindow *_mainwindow;
   tableViewType viewType;
+  int _labeledGroups;
+  int _targetedGroups;
   void dragEnterEvent(QDragEnterEvent *event);
   void dropEvent(QDropEvent *event);
   void focusInEvent(QFocusEvent *event);
@@ -392,7 +414,7 @@ class UploadPeaksToCloudThread : public QThread
 {
     Q_OBJECT
     public:
-        UploadPeaksToCloudThread();
+        UploadPeaksToCloudThread(PollyIntegration* iPolly);
         ~UploadPeaksToCloudThread();
         void run();
         QString sessionId;

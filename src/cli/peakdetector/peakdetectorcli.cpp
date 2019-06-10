@@ -1,5 +1,6 @@
 #include "peakdetectorcli.h"
 #include "mzUtils.h"
+#include <common/downloadmanager.h>
 
 PeakDetectorCLI::PeakDetectorCLI()
 {
@@ -14,9 +15,16 @@ PeakDetectorCLI::PeakDetectorCLI()
     alignMode = AlignmentMode::None;
     _reduceGroupsFlag = true;
     _parseOptions = new ParseOptions();
-    _pollyIntegration = new PollyIntegration();
+    _dlManager = new DownloadManager;
+    _pollyIntegration = new PollyIntegration(_dlManager);
     _redirectTo = "gsheet_sym_polly_elmaven";
     _currentPollyApp = PollyApp::None;
+}
+
+PeakDetectorCLI::~PeakDetectorCLI()
+{
+    delete _dlManager;
+    delete _pollyIntegration;
 }
 
 void PeakDetectorCLI::processOptions(int argc, char* argv[])
@@ -697,6 +705,41 @@ int PeakDetectorCLI::prepareCompoundDbForPolly(QString fileName)
     }
 }
 
+bool PeakDetectorCLI::_incompatibleWithPollyApp() 
+{
+    //MRM data is not compatible with PollyPhi
+    bool onlyMS2 = true;
+    for (auto sample : mavenParameters->samples) {
+        if (sample->ms1ScanCount())
+            onlyMS2 = false;
+    }
+    if (onlyMS2 && _currentPollyApp == PollyApp::PollyPhi) {
+        cerr << "PollyPhi currently does not support purely MS2 data. "
+             << "Please use an MS1 or DDA dataset."
+             << endl;
+        return true;
+    }
+    
+    //Untargeted data is not compatible with any app atm
+    if (mavenParameters->processAllSlices) {
+        cerr << "Untargeted data is not supported on Polly. Please switch off"
+             << " mass slicing and provide a compound database."
+             << endl;
+        return true;
+    }
+
+    //Unlabelled data is not the desired data for PollyPhi
+    if (!mavenParameters->pullIsotopesFlag && 
+        _currentPollyApp == PollyApp::PollyPhi) {
+        cerr << "PollyPhi is used for the analysis of labeled data. Please "
+             << "switch on isotope detection using paramater -f."
+             << endl;
+        return true;
+    }
+
+    return false;
+}
+
 void PeakDetectorCLI::writeReport(string setName,
                                   QString jsPath,
                                   QString nodePath)
@@ -723,6 +766,9 @@ void PeakDetectorCLI::writeReport(string setName,
         // save output CSV
         saveCSV(fileName, false);
     } else {
+        if (_incompatibleWithPollyApp())
+            exit(0);
+
         // try uploading to Polly
         QMap<QString, QString> creds = _readCredentialsFromXml(pollyArgs);
         cout << "uploading to Polly now…" << endl;
@@ -855,19 +901,23 @@ QString PeakDetectorCLI::_getRedirectionUrl(QString datetimestamp,
     QString redirectionUrl = "";
     switch (_currentPollyApp) {
     case PollyApp::PollyPhi: {
+        QString workflowId = 
+            _pollyIntegration->obtainWorkflowId(PollyApp::PollyPhi);
+
+        QString workflowName = 
+            _pollyIntegration->obtainComponentName(PollyApp::PollyPhi);
+
         QString workflowRequestId =
-            _pollyIntegration->createWorkflowRequest(uploadProjectId);
+            _pollyIntegration->createWorkflowRequest(uploadProjectId,
+                                                     workflowName,
+                                                     workflowId);
         if (!workflowRequestId.isEmpty()) {
             redirectionUrl =
-                QString("https://polly.elucidata.io/"
-                        "workflow-requests/%1"
-                        "/lcms_tstpl_pvd/dashboard#"
-                        "redirect-from=%2"
-                        "#project=%3"
-                        "#timestamp=%4").arg(workflowRequestId)
-                                        .arg(_redirectTo)
-                                        .arg(uploadProjectId)
-                                        .arg(datetimestamp);
+                _pollyIntegration->getWorkflowEndpoint(workflowId,
+                                                        workflowRequestId,
+                                                        _redirectTo,
+                                                        uploadProjectId,
+                                                        datetimestamp);
         } else {
             cerr << "Unable to create workflow request id. "
                     "Please try again."
@@ -876,15 +926,15 @@ QString PeakDetectorCLI::_getRedirectionUrl(QString datetimestamp,
         break;
     } case PollyApp::QuantFit: {
         QString componentId =
-            _pollyIntegration->obtainComponentId("calibration_file_uploader_beta");
+            _pollyIntegration->obtainComponentId(PollyApp::QuantFit);
         QString runRequestId =
             _pollyIntegration->createRunRequest(componentId,
                                                 uploadProjectId);
         if (!runRequestId.isEmpty()) {
             redirectionUrl =
-                _pollyIntegration->redirectionUiEndpoint(componentId,
-                                                         runRequestId,
-                                                         datetimestamp);
+                _pollyIntegration->getComponentEndpoint(componentId,
+                                                        runRequestId,
+                                                        datetimestamp);
         }
         break;
     } default: break;
@@ -994,17 +1044,24 @@ QString PeakDetectorCLI::uploadToPolly(QString jsPath,
     QFile pollyCredFile(_pollyIntegration->getCredFile());
     pollyCredFile.remove();
 
-    if (!_pollyIntegration->activeInternet()) {
+    ErrorStatus response = _pollyIntegration->activeInternet();
+    if (response == ErrorStatus::Failure ||
+        response == ErrorStatus::Error) {
         cerr << "No internet access. Please connect to the internet and try "
                 "again"
              << endl;
         return uploadProjectId;
     }
 
-    QString status = _pollyIntegration->authenticateLogin(
+    ErrorStatus loginResponse = _pollyIntegration->authenticateLogin(
         creds["polly_username"], creds["polly_password"]);
-    if (status != "ok") {
+    if (loginResponse == ErrorStatus::Failure) {
         cerr << "Incorrect credentials. Please check." << endl;
+        return uploadProjectId;
+    } else if (loginResponse == ErrorStatus::Error) {
+        cerr << "A server error was encountered. Please contact tech support "
+                "at elmaven@elucidata.io if the problem persists."
+             << endl;
         return uploadProjectId;
     }
 
@@ -1062,10 +1119,19 @@ bool PeakDetectorCLI::_sendUserEmail(QMap<QString, QString> creds,
     } default:
         break;
     }
-    status = _pollyIntegration->sendEmail(userEmail,
+
+    ErrorStatus errorstatus = _pollyIntegration->sendEmail(userEmail,
                                           emailMessage,
                                           emailUrl,
                                           appname);
+
+    if (errorstatus == ErrorStatus::Success)
+        status = true;
+    else {
+        status = false;
+    } 
+
+
     return status;
 }
 
@@ -1109,17 +1175,19 @@ void PeakDetectorCLI::saveCSV(string setName, bool pollyExport)
 
     csvreports->setUserQuantType(quantitationType);
 
-    auto prmGroupAt =
+    auto ddaGroupAt =
         find_if(begin(mavenParameters->allgroups),
                 end(mavenParameters->allgroups),
                 [](PeakGroup& group) {
+                    if (!group.compound)
+                        return false;
                     return group.compound->type() == Compound::Type::PRM;
                 });
-    bool prmGroupExists = prmGroupAt != end(mavenParameters->allgroups);
+    bool ddaGroupExists = ddaGroupAt != end(mavenParameters->allgroups);
 
     // Added to pass into csvreports file when merged with Maven776 - Kiran
     // CLI exports the default Group Summary Matrix Format (without set Names)
-    csvreports->openGroupReport(fileName, prmGroupExists);
+    csvreports->openGroupReport(fileName, ddaGroupExists);
 
     for (int i = 0; i < mavenParameters->allgroups.size(); i++) {
         PeakGroup& group = mavenParameters->allgroups[i];
@@ -1156,7 +1224,7 @@ void PeakDetectorCLI::saveCSV(string setName, bool pollyExport)
 
     if (fileNeedsCorrection) {
         // rewrite file if needed
-        csvreports->openGroupReport(fileName, prmGroupExists);
+        csvreports->openGroupReport(fileName, ddaGroupExists);
         csvreports->groupId = 0;
 
         sort(groupsWithMissingLabels.begin(), groupsWithMissingLabels.end());

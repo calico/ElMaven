@@ -11,17 +11,99 @@
 #include <QDateTime>
 #include <QMap>
 
+Q_DECLARE_METATYPE(PollyApp)
+
 class PollyIntegration;
 class MainWindow;
 class LoginForm;
 class TableDockWidget;
 class PollyWaitDialog;
 
-enum class PollyApp: int
+class EPIWorkerThread : public QThread
 {
-    FirstView = 0,
-    Fluxomics = 1,
-    QuantFit = 2
+    Q_OBJECT
+
+public:
+
+    enum class RunMethod
+    {
+        AuthenticateAndFetchData,
+        UploadFiles,
+        SendEmail
+    };
+
+    EPIWorkerThread(PollyIntegration *pi) : _pollyIntegration(pi) {}
+
+    void run();
+
+    void setMethodToRun(RunMethod method)
+    {
+        _currentMethod = method;
+    }
+
+    void setUploadArgs(QDir dir,
+                       QStringList filesToUpload,
+                       QString datetimestamp,
+                       QString pollyProjectId)
+    {
+        _uploadArgs.dir = dir;
+        _uploadArgs.filesToUpload = filesToUpload;
+        _uploadArgs.datetimestamp = datetimestamp;
+        _uploadArgs.pollyProjectId = pollyProjectId;
+    }
+
+    void setEmailArgs(QString username,
+                      QString subject,
+                      QString content,
+                      QString appname)
+    {
+        _emailArgs.username = username;
+        _emailArgs.subject = subject;
+        _emailArgs.content = content;
+        _emailArgs.appname = appname;
+    }
+
+Q_SIGNALS:
+    void filesUploaded(QStringList patchId,
+                       QString uploadProjectIdThread,
+                       QString datetimestamp);
+    void licensesReady(QMap<PollyApp, bool> licenseMap);
+    void projectsReady(QVariantMap projectNamesId);
+    void authenticationFinished(QString username, QString status);
+
+private:
+
+    struct _UploadStruct
+    {
+        QDir dir;
+        QStringList filesToUpload;
+        QString datetimestamp;
+        QString pollyProjectId;
+    };
+
+    struct _EmailStruct
+    {
+        QString username;
+        QString subject;
+        QString content;
+        QString appname;
+    };
+
+    RunMethod _currentMethod;
+
+    PollyIntegration* _pollyIntegration;
+
+    _UploadStruct _uploadArgs;
+
+    _EmailStruct _emailArgs;
+
+    void _authenticateUserAndFetchData();
+
+    void _uploadFiles();
+
+    void _sendEmail();
+
+    void _removeFilesFromDir(QDir dir, QStringList files);
 };
 
 /**
@@ -97,6 +179,8 @@ public Q_SLOTS:
      */
     void setSelectedTable(TableDockWidget* table);
 
+    void showEPIError(QString errorMessage);
+
 Q_SIGNALS:
 
     /**
@@ -167,6 +251,12 @@ private:
     QVariantMap _projectNameIdMap;
 
     /**
+     * @brief A map which contains the mapping of licenses names with their
+     * active state.
+     */
+    QMap<PollyApp, bool> _licenseMap;
+
+    /**
      * @brief Name of the temporary directory where files are contained before
      * being sent to Polly.
      */
@@ -177,6 +267,12 @@ private:
      * background.
      */
     bool _uploadInProgress;
+
+    /**
+     * @brief A worker thread that allows separating blocking operations from
+     * the main event loop.
+     */
+    EPIWorkerThread *_worker;
 
     /**
      * @brief This function calls login form UI to take credentials from user.
@@ -232,7 +328,9 @@ private:
      * @param title Title of the message box to be shown.
      * @param message Message to be shown.
      */
-    void _showErrorMessage(QString title, QString message);
+    void _showErrorMessage(QString title,
+                           QString message,
+                           QMessageBox::Icon icon);
 
     /**
      * @brief Reset and clear UI elements of the dialog to their fresh state.
@@ -248,6 +346,10 @@ private:
     void _addTableIfPossible(TableDockWidget *table, QString tableName);
 
     void _showPollyButtonIfUrlExists();
+
+    void _populateProjects();
+
+    void _populateTables();
 
 private Q_SLOTS:
 
@@ -266,7 +368,15 @@ private Q_SLOTS:
      * projects.
      * @param projectNamesId A map of user project names to their IDs on Polly.
      */
-    void _handleResults(QVariantMap projectNameIdMap);
+    void _handleProjects(QVariantMap projectNameIdMap);
+
+    /**
+     * @brief Handle information fetched from Polly about current user's
+     * licenses.
+     * @param licenseMap A map of application names to their license status on
+     * Polly.
+     */
+    void _handleLicenses(QMap<PollyApp, bool> licenseMap);
 
     /**
      * @brief Handle the result of authentication status post-process.
@@ -329,32 +439,19 @@ private Q_SLOTS:
      */
     void _changePage();
 
-};
+    /**
+     * @brief Hide the form and switch to advert if the user is not licensed for
+     * the currently selected application.
+     */
+    void _hideFormIfNotLicensed();
 
-class EPIWorkerThread : public QThread
-{
-    Q_OBJECT
-
-public:
-    EPIWorkerThread();
-    ~EPIWorkerThread();
-    void run();
-    QString username;
-    QString password;
-    QString state;
-    QString datetimestamp;
-    QDir tmpDir;
-    QString uploadProjectIdThread;
-    QStringList filesToUpload;
-    PollyApp currentApp;
-    PollyIntegration* _pollyintegration;
-
-Q_SIGNALS:
-    void filesUploaded(QStringList patchId,
-                       QString uploadProjectIdThread,
-                       QString datetimestamp);
-    void resultReady(QVariantMap projectNamesId);
-    void authentication_result(QString username, QString status);
+    /**
+     * @brief Enable or disables group subset options, based on the table name
+     * passed.
+     * @param tableName Name of the table for which the group options have to be
+     * revised.
+     */
+    void _reviseGroupOptions(QString tableName);
 };
 
 #endif

@@ -112,7 +112,8 @@ void CSVReports::insertGroupReportColumnNamesintoCSVFile(string outputfile,
                                 << "weigtedDotProduct"
                                 << "hyperGeomScore"
                                 << "spearmanRankCorrelation"
-                                << "mzFragmentError";
+                                << "mzFragmentError"
+                                << "ms2Purity";
         }
 
         int cohort_offset = groupReportcolnames.size() - 1;
@@ -312,8 +313,8 @@ void CSVReports::writeGroupInfo(PeakGroup* group) {
         if(lab !='g') return;
     } else if (selectionFlag == 3) {
         if(lab !='b') return;
-    } else {
-
+    } else if (selectionFlag == 4) {
+        if (lab == 'b') return;
     }
 
     vector<float> yvalues = group->getOrderedIntensityVector(samples, qtype);
@@ -404,7 +405,8 @@ void CSVReports::writeGroupInfo(PeakGroup* group) {
                     << SEP << groupToWrite->fragMatchScore.weightedDotProduct
                     << SEP << groupToWrite->fragMatchScore.hypergeomScore
                     << SEP << groupToWrite->fragMatchScore.spearmanRankCorrelation
-                    << SEP << groupToWrite->fragMatchScore.mzFragError;
+                    << SEP << groupToWrite->fragMatchScore.mzFragError
+                    << SEP << groupToWrite->fragmentationPattern.purity;
     }
 
     // for intensity values, we only write two digits of floating point precision
@@ -447,6 +449,8 @@ void CSVReports::writePeakInfo(PeakGroup* group) {
         if(group->label !='g') return;
     } else if (selectionFlag == 3) {
         if(group->label !='b') return;
+    } else if (selectionFlag == 4) {
+        if (group->label == 'b') return;
     }
 
     // sort the peaks in the group according to the sample names using a comparison function

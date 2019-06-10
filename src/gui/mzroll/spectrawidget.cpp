@@ -295,7 +295,7 @@ void SpectraWidget::overlayCompoundFragmentation(Compound* c)
 
     cerr << "SpectraWidge::overlayCompoundfragmentation(Compound)" << c->name << " " << c->precursorMz << endl;
 
-    if (_currentScan && _currentScan->mslevel != 1) {
+    if (_currentScan && _currentScan->mslevel == 2) {
         _showOverlay = true;
         overlaySpectralHit(_spectralHit);
         resetZoom();
@@ -337,11 +337,7 @@ void SpectraWidget::showConsensusSpectra(PeakGroup* group)
 
     if (consensus) {
         _scanset = group->getFragmentationEvents();
-        _currentScan = consensus;
-        _currentScan->scannum = 0;
-        _currentScan->sample = 0;
-        _currentScan->rt = group->meanRt;
-        _currentScan->precursorMz = group->meanMz;
+        _currentScan->deepcopy(consensus);
         this->findBounds(true, true);
         this->drawGraph();
     }

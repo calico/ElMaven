@@ -168,9 +168,9 @@ PeakDetectionDialog::PeakDetectionDialog(QWidget *parent) :
         chargeMin->setVisible(false);
         chargeMax->setVisible(false);
         
-        connect(dbOptions, SIGNAL(clicked(bool)), SLOT(dbOptionsClicked()));
+        connect(dbOptions, SIGNAL(toggled(bool)), SLOT(dbOptionsClicked()));
         featureOptions->setChecked(false);
-        connect(featureOptions, SIGNAL(clicked(bool)), SLOT(featureOptionsClicked()));
+        connect(featureOptions, SIGNAL(toggled(bool)), SLOT(featureOptionsClicked()));
 
         compoundRTWindow->setEnabled(false); //TODO: Sahil - Kiran, Added while merging mainwindow
         reportIsotopesOptions->setEnabled(true); //TODO: Sahil - Kiran, Added while merging mainwindow
@@ -193,13 +193,8 @@ void PeakDetectionDialog::onReset()
 
 void PeakDetectionDialog::setMassCutoffType(QString type)
 {
-    /* we are changing in peaks dialog from an event that occurs outside of peaks dialog
-     * (@see in MainWindow masscutoffCombox::currentIndexChanged)
-     */
-    massCutoffType = type;
-    label_7->setText(QString("Mass Domain Resolution (%1)").arg(type));
-    string EICExtractionWindow="EIC Extraction Window  +/- "+type.toStdString();
-    label_11->setText(QApplication::translate("PeakDetectionDialog", &EICExtractionWindow[0], 0));
+    massCutoffType = QString(" %1").arg(type);
+    ppmStep->setSuffix(type);
     compoundPPMWindow->setSuffix(type);
     emit updateSettings(peakSettings);
 }
@@ -468,8 +463,8 @@ void PeakDetectionDialog::toggleFragmentation(QString selectedDbName)
 
 // TODO: Sahil. Refactored this whole function. Merged with mainwindow of 776.
 // RECHECK IT AGAIN. IMPORTANT
-void PeakDetectionDialog::findPeaks() {
-
+void PeakDetectionDialog::findPeaks()
+{
     if (reportIsotopesOptions->isChecked()) {
         mainwindow->getAnalytics()->hitEvent("Peak Detection",
                                              "Find Peaks With Isotopes");
@@ -496,9 +491,11 @@ void PeakDetectionDialog::findPeaks() {
     if (dbOptions->isChecked() && !(featureOptions->isChecked())) {
         _featureDetectionType = CompoundDB;
         mainwindow->getAnalytics()->hitEvent("Peak Detection", "Targeted");
+        mainwindow->massCutoffWindowBox->setValue(compoundPPMWindow->value());
     } else if (!(dbOptions->isChecked()) && (featureOptions->isChecked())) {
         _featureDetectionType = FullSpectrum;
         mainwindow->getAnalytics()->hitEvent("Peak Detection", "Untargeted");
+        mainwindow->massCutoffWindowBox->setValue(ppmStep->value());
     } else {
         _featureDetectionType = FullSpectrum;
     }

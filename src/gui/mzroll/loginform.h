@@ -27,10 +27,6 @@ public:
     */
     AboutPolly* _aboutPolly;
     void cancel();
-    
-
-public slots:
-    void handleResults(QString status);
 
 private slots:
     /**
@@ -42,24 +38,12 @@ private slots:
      * 4. If failed, display incorrect credentials..
      */
     void on_pushButton_clicked();
+    void login(QString username, QString password);
     void showAboutPolly();
+    bool checkInternetConnectivity();
 
 private:
     Ui::LoginForm *ui;
-};
-
-class WorkerThread : public QThread
-{
-    Q_OBJECT
-    public:
-        WorkerThread();
-        ~WorkerThread();
-        PollyIntegration* _pollyintegration;
-        QString username;
-        QString password;
-        void run();
-    signals:
-        void resultReady(QString status);
 };
 
 #endif // LOGINFORM_H
