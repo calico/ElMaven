@@ -1,4 +1,20 @@
+#include "classifierNeuralNet.h"
+#include "datastructures/mzSlice.h"
+#include "obiwarp.h"
 #include "PeakDetector.h"
+#include "EIC.h"
+#include "mzUtils.h"
+#include "Compound.h"
+#include "mzSample.h"
+#include "mzAligner.h"
+#include "constants.h"
+#include "classifier.h"
+#include "mzMassSlicer.h"
+#include "peakFiltering.h"
+#include "groupFiltering.h"
+#include "mavenparameters.h"
+#include "mzMassCalculator.h"
+#include "isotopeDetection.h"
 
 PeakDetector::PeakDetector() {
     mavenParameters = NULL;
@@ -145,7 +161,6 @@ void PeakDetector::processMassSlices() {
     // TODO: what is this doing?
     // TODO: cant this be in background_peaks_update parameter setting function
     mavenParameters->showProgressFlag = true;
-    mavenParameters->checkConvergance = true;
     QTime timer;
     timer.start();
 
@@ -295,9 +310,6 @@ void PeakDetector::processSlices(vector<mzSlice *> &slices, string setName)
 
     sort(slices.begin(), slices.end(), mzSlice::compIntensity);
 
-    int converged = 0;
-    int foundGroups = 0;
-
     int eicCount = 0;
     for (unsigned int s = 0; s < slices.size(); s++)
     {
@@ -310,20 +322,6 @@ void PeakDetector::processSlices(vector<mzSlice *> &slices, string setName)
 
         if (compound != NULL && compound->hasGroup())
             compound->unlinkGroup();
-
-        //TODO: what is this for? this is not used
-        //mavenParameters->checkConvergance is not always 0
-        if (mavenParameters->checkConvergance)
-        {
-            mavenParameters->allgroups.size() - foundGroups > 0 ? converged =
-                                                                      0
-                                                                : converged++;
-            if (converged > 1000)
-            {
-                break;
-            }
-            foundGroups = mavenParameters->allgroups.size();
-        }
 
         vector<EIC *> eics = pullEICs(slice,
                                       mavenParameters->samples,

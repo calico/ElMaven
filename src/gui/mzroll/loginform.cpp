@@ -1,7 +1,13 @@
-#include "loginform.h"
-#include "ui_loginform.h"
 #include <QMessageBox>
+
+#include "aboutpolly.h"
+#include "analytics.h"
 #include "controller.h"
+#include "loginform.h"
+#include "mainwindow.h"
+#include "pollyelmaveninterface.h"
+#include "pollyintegration.h"
+#include "ui_loginform.h"
 
 
 LoginForm::LoginForm(PollyElmavenInterfaceDialog* pollyelmaveninterfacedialog) :
@@ -31,6 +37,12 @@ LoginForm::LoginForm(PollyElmavenInterfaceDialog* pollyelmaveninterfacedialog) :
                 showAboutPolly();
                 analytics->hitEvent("PollyDialog", "AboutPolly");
             });
+    connect(_pollyintegration,
+            &PollyIntegration::receivedEPIError,
+            [=] {
+                ui->login_label->clear();
+                ui->pushButton->setEnabled(true);
+            });
 }
 
 LoginForm::~LoginForm()
@@ -44,11 +56,8 @@ void LoginForm::login(QString username, QString password)
     ErrorStatus response = _pollyintegration->authenticateLogin(username, password);
     if (response == ErrorStatus::Success) {
         qDebug() << "Logged in, moving on now…";
-        ui->login_label->setText("Fetching user data…");
-        QCoreApplication::processEvents();
-        _pollyelmaveninterfacedialog->startupDataLoad();
-        _pollyelmaveninterfacedialog->usernameLabel->setText(username);
         hide();
+        _pollyelmaveninterfacedialog->initialSetup();
         _pollyelmaveninterfacedialog->show();
     } else if (response == ErrorStatus::Failure) {
         QCoreApplication::processEvents();

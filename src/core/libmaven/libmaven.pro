@@ -18,14 +18,16 @@ macx: QMAKE_CXXFLAGS += -O3
 QMAKE_CXXFLAGS += -fopenmp
 
 !isEmpty(ON_TRAVIS)|!isEmpty(ON_APPVEYOR) {
-    CONFIG(debug, debug|release) {
-        linux|win32 {
-            message("adding gcov compiler flags")
-            QMAKE_CCFLAGS += -fprofile-arcs -ftest-coverage
-            QMAKE_CXXFLAGS += -fprofile-arcs -ftest-coverage
-            QMAKE_CXXFLAGS -= -Ofast -ffast-math
-            QMAKE_LFLAGS += -fprofile-arcs -ftest-coverage
-            QMAKE_LFLAGS += -lgcov --coverage
+    !isEmpty(IS_TRAVIS_PR)|!isEmpty(IS_APPVEYOR_PR) {
+        CONFIG(debug, debug|release) {
+            linux|win32 {
+                message("adding gcov compiler flags")
+                QMAKE_CCFLAGS += -fprofile-arcs -ftest-coverage
+                QMAKE_CXXFLAGS += -fprofile-arcs -ftest-coverage
+                QMAKE_CXXFLAGS -= -Ofast -ffast-math
+                QMAKE_LFLAGS += -fprofile-arcs -ftest-coverage
+                QMAKE_LFLAGS += -lgcov --coverage
+            }
         }
     }
 }
@@ -43,7 +45,8 @@ INCLUDEPATH +=  $$top_srcdir/3rdparty/pugixml/src/ \
                 $$top_srcdir/3rdparty/ErrorHandling \
                 $$top_srcdir/3rdparty/obiwarp/ \
                 $$top_srcdir/3rdparty/Eigen/ \
-                $$top_srcdir/3rdparty/libsvm
+                $$top_srcdir/3rdparty/libsvm \
+                $$top_srcdir/3rdparty/NimbleDSP/src
 
 QMAKE_LFLAGS += -L$$top_builddir/libs
 
@@ -96,7 +99,8 @@ SOURCES = 	base64.cpp \
                 datastructures/mzSlice.cpp \
                 groupClassifier.cpp \
                 groupFeatures.cpp \
-                svmPredictor.cpp
+                svmPredictor.cpp \
+    zlib.cpp
 
 HEADERS += 	constants.h \
 		base64.h \
@@ -112,6 +116,7 @@ HEADERS += 	constants.h \
                 mzMassCalculator.h \
                 mzPatterns.h \
                 mzUtils.h \
+    standardincludes.h \
                 statistics.h \
                 SavGolSmoother.h \
                 PeakDetector.h \

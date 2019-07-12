@@ -1,4 +1,13 @@
 #include "testEIC.h"
+#include "datastructures/mzSlice.h"
+#include "EIC.h"
+#include "masscutofftype.h"
+#include "mavenparameters.h"
+#include "mzMassCalculator.h"
+#include "mzSample.h"
+#include "PeakGroup.h"
+#include "PeakDetector.h"
+#include "utilities.h"
 
 TestEIC::TestEIC() {}
 
@@ -124,8 +133,8 @@ void TestEIC::testcomputeBaselineAsLSSmoothing()
 
     // change default baseline mode
     e->setBaselineMode(EIC::BaselineMode::AsLSSmoothing);
-    e->setAsLSSmoothness(5);
-    e->setAsLSAsymmetry(4);
+    e->setAsLSSmoothness(2);
+    e->setAsLSAsymmetry(8);
 
     // TODO: for lack of better floating point comparators to test the
     // consistency of the output, we can at least test whether the operation
@@ -158,8 +167,8 @@ void TestEIC::testcomputeBaselineZeroIntensity()
 
     // change default baseline mode
     e->setBaselineMode(EIC::BaselineMode::AsLSSmoothing);
-    e->setAsLSSmoothness(5);
-    e->setAsLSAsymmetry(4);
+    e->setAsLSSmoothness(2);
+    e->setAsLSAsymmetry(8);
 
     e->computeBaseline();
 
@@ -180,8 +189,8 @@ void TestEIC::testcomputeBaselineEmptyEIC()
 
     // change default baseline mode
     e.setBaselineMode(EIC::BaselineMode::AsLSSmoothing);
-    e.setAsLSSmoothness(5);
-    e.setAsLSAsymmetry(4);
+    e.setAsLSSmoothness(2);
+    e.setAsLSAsymmetry(8);
 
     e.computeBaseline();
     QVERIFY(e.baseline == nullptr);

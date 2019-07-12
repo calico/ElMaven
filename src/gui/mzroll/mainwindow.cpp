@@ -1,10 +1,66 @@
-#include "mainwindow.h"
-#include "grouprtwidget.h"
 #include <QStandardPaths>
-#include "notificator.h"
-#include "videoplayer.h"
-#include "controller.h"
+#include <QList>
+#include <QRegExp>
+#include <qcustomplot.h>
+
+#include "SRMList.h"
+#include "adductwidget.h"
+#include "alignmentdialog.h"
+#include "alignmentvizallgroupswidget.h"
+#include "analytics.h"
+#include "animationcontrol.h"
+#include "awsbucketcredentialsdialog.h"
 #include "background_peaks_update.h"
+#include "Compound.h"
+#include "controller.h"
+#include "classifierNeuralNet.h"
+#include "eiclogic.h"
+#include "eicwidget.h"
+#include "gallerywidget.h"
+#include "gettingstarted.h"
+#include "globals.h"
+#include "groupClassifier.h"
+#include "grouprtwidget.h"
+#include "heatmap.h"
+#include "isotopeplot.h"
+#include "isotopeplotdockwidget.h"
+#include "isotopeswidget.h"
+#include "ligandwidget.h"
+#include "logwidget.h"
+#include "mainwindow.h"
+#include "masscalcgui.h"
+#include "masscutofftype.h"
+#include "mavenparameters.h"
+#include "messageBoxResize.h"
+#include "mzfileio.h"
+#include "mzSample.h"
+#include "note.h"
+#include "noteswidget.h"
+#include "notificator.h"
+#include "pathwaywidget.h"
+#include "peakdetectiondialog.h"
+#include "PeakDetector.h"
+#include "Peptide.hpp"
+#include "peptidefragmentation.h"
+#include "pollyelmaveninterface.h"
+#include "projectdockwidget.h"
+#include "qdownloader.h"
+#include "remotespectrahandler.h"
+#include "samplertwidget.h"
+#include "Scan.h"
+#include "scatterplot.h"
+#include "settingsform.h"
+#include "spectralhit.h"
+#include "spectralhitstable.h"
+#include "spectramatching.h"
+#include "spectrawidget.h"
+#include "suggest.h"
+#include "svmPredictor.h"
+#include "tabledockwidget.h"
+#include "treedockwidget.h"
+#include "treemap.h"
+#include "videoplayer.h"
+
 #ifdef WIN32
 #include <windows.h>
 #endif
@@ -1405,6 +1461,11 @@ void MainWindow::setFilterLine() {
 
 	settingsForm->filterlineComboBox->insertItems(1, filterlines);
 
+}
+
+int MainWindow::getIonizationMode()
+{
+    return mavenParameters->ionizationMode;
 }
 
 void MainWindow::setTotalCharge()
@@ -3416,8 +3477,6 @@ void MainWindow::Align() {
     mavenParameters->minSignalBlankRatio = 0; //TODO: Sahil-Kiran, Added while merging mainwindow
     mavenParameters->alignMaxIterations = alignmentDialog->maxIterations->value(); //TODO: Sahil-Kiran, Added while merging mainwindow
     mavenParameters->alignPolynomialDegree = alignmentDialog->polynomialDegree->value(); //TODO: Sahil-Kiran, Added while merging mainwindow
-
-    mavenParameters->checkConvergance=false; //TODO: Sahil-Kiran, Added while merging mainwindow
 	mavenParameters->alignSamplesFlag = true;
 	mavenParameters->keepFoundGroups = true;
     mavenParameters->eicMaxGroups = peakDetectionDialog->eicMaxGroups->value();

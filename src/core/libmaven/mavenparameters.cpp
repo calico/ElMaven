@@ -1,12 +1,13 @@
-#include "mavenparameters.h"
-#include "settings.h"
-
 #include <pugixml.hpp>
 
-#include <cstdlib>
-#include <fstream>
-#include <sstream>
-#include <cstring>
+#include "mavenparameters.h"
+#include "settings.h"
+#include "mzMassCalculator.h"
+#include "mzSample.h"
+#include "mzUtils.h"
+#include "Compound.h"
+#include "masscutofftype.h"
+#include "classifierNeuralNet.h"
 
 MavenParameters::MavenParameters(string settingsPath):lastUsedSettingsPath(settingsPath)
 {
@@ -17,7 +18,6 @@ MavenParameters::MavenParameters(string settingsPath):lastUsedSettingsPath(setti
         processAllSlices = false;
         pullIsotopesFlag = false;
         matchRtFlag = false;
-        checkConvergance = false;
         stop = false;
 
         outputdir = "reports" + string(DIR_SEPARATOR_STR);
@@ -55,8 +55,8 @@ MavenParameters::MavenParameters(string settingsPath):lastUsedSettingsPath(setti
         aslsBaselineMode = false;
         baseline_smoothingWindow = 5;
         baseline_dropTopX = 80;
-        aslsSmoothness = 5;
-        aslsAsymmetry = 30;
+        aslsSmoothness = 2;
+        aslsAsymmetry = 80;
 
         isIsotopeEqualPeakFilter = false;
         minSignalBaselineDifference = 0;
@@ -164,6 +164,10 @@ MavenParameters::MavenParameters(string settingsPath):lastUsedSettingsPath(setti
 MavenParameters::~MavenParameters()
 {
     saveSettings(lastUsedSettingsPath.c_str());
+}
+
+void MavenParameters::setOutputDir(QString outdir) {
+    outputdir = outdir.toStdString() + string(DIR_SEPARATOR_STR);
 }
 
 std::map<string, string>& MavenParameters::getSettings()

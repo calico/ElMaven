@@ -1,6 +1,10 @@
-#include "peakdetectorcli.h"
+#include "common/downloadmanager.h"
+#include "Compound.h"
+#include "csvparser.h"
+#include "mavenparameters.h"
+#include "masscutofftype.h"
 #include "mzUtils.h"
-#include <common/downloadmanager.h>
+#include "peakdetectorcli.h"
 
 PeakDetectorCLI::PeakDetectorCLI()
 {
@@ -89,6 +93,10 @@ void PeakDetectorCLI::processOptions(int argc, char* argv[])
             mavenParameters->processAllSlices = true;
             if (atoi(optarg) == 0)
                 mavenParameters->processAllSlices = false;
+            break;
+
+        case 'E':
+            _pollyExtraInfo = QString(optarg);
             break;
 
         case 'f': {
@@ -504,9 +512,13 @@ void PeakDetectorCLI::_processGeneralArgsXML(xml_node& generalArgs)
             if (atoi(node.attribute("value").value()) == 0)
                 saveMzrollFile = false;
 
+        } else if (strcmp(node.name(), "pollyExtra") == 0) {
+            _pollyExtraInfo = QString(node.attribute("value").value());
+
         } else if (strcmp(node.name(), "samples") == 0) {
             string sampleStr = node.attribute("value").value();
             filenames.push_back(sampleStr);
+
         } else {
             cout << endl << "Unknown node : " << node.name() << endl;
         }
@@ -871,6 +883,17 @@ void PeakDetectorCLI::writeReport(string setName,
                 cerr << "Unable to upload data to Polly." << endl;
             }
 
+            // NOTE: Adding this to help clients of this CLI to be able to
+            // access the redirection URL.
+            QString fname = "polly_redirection_url.txt";
+            QString fpath = QStandardPaths::writableLocation(
+                                QStandardPaths::GenericConfigLocation)
+                            + QDir::separator()
+                            + fname;
+            ofstream ofs(fpath.toStdString());
+            ofs << redirectionUrl.toStdString() << endl;
+            ofs.close();
+
             // if redirection URL is not empty then we can print it on console
             // and send the user an email with that URL
             if (!redirectionUrl.isEmpty()) {
@@ -929,7 +952,8 @@ QString PeakDetectorCLI::_getRedirectionUrl(QString datetimestamp,
             _pollyIntegration->obtainComponentId(PollyApp::QuantFit);
         QString runRequestId =
             _pollyIntegration->createRunRequest(componentId,
-                                                uploadProjectId);
+                                                uploadProjectId,
+                                                _pollyExtraInfo);
         if (!runRequestId.isEmpty()) {
             redirectionUrl =
                 _pollyIntegration->getComponentEndpoint(componentId,

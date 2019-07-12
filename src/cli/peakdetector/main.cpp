@@ -1,6 +1,9 @@
 #include "peakdetectorcli.h"
 #include <QCoreApplication>
 
+#include "mavenparameters.h"
+#include "peakdetectorcli.h"
+
 int main(int argc, char *argv[]) {
 
     QCoreApplication app(argc, argv);
@@ -79,7 +82,6 @@ int main(int argc, char *argv[]) {
 	//process all mass slices
 	if (peakdetectorCLI->mavenParameters->processAllSlices == true) {
 		peakdetectorCLI->mavenParameters->matchRtFlag = false;
-		peakdetectorCLI->mavenParameters->checkConvergance = true;
 		peakdetectorCLI->peakDetector->processMassSlices();
 	}
 

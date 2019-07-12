@@ -1,15 +1,30 @@
+#include <omp.h>
+
 #include <boost/signals2.hpp>
 
-#include "mzfileio.h"
-#include "projectdatabase.h"
-#include "mzrolldbconverter.h"
+#include <QLabel>
 #include <QStringList>
 #include <QTextStream>
 
-#include <omp.h>
-
-#include <MavenException.h>
-#include <errorcodes.h>
+#include "analytics.h"
+#include "base64.h"
+#include "Compound.h"
+#include "errorcodes.h"
+#include "globals.h"
+#include "ligandwidget.h"
+#include "mainwindow.h"
+#include "MavenException.h"
+#include "mavenparameters.h"
+#include "mzAligner.h"
+#include "mzfileio.h"
+#include "mzrolldbconverter.h"
+#include "mzSample.h"
+#include "mzUtils.h"
+#include "projectdatabase.h"
+#include "projectdockwidget.h"
+#include "Scan.h"
+#include "spectralhitstable.h"
+#include "tabledockwidget.h"
 
 mzFileIO::mzFileIO(QWidget*) {
     sampleId = 0;
@@ -363,12 +378,12 @@ mzSample* mzFileIO::parseMzData(QString fileName) {
 
                      if (taglist.at(taglist.size()-2) == "mzArrayBinary") {
                       currentScan->mz=
-                               base64::decode_base64(xml.readElementText().toStdString(),precision/8,false,false);
+                               base64::decodeBase64(xml.readElementText().toStdString(),precision/8,false,false);
                      }
 
                      if (taglist.at(taglist.size()-2) == "intenArrayBinary") {
                         currentScan->intensity =
-                                base64::decode_base64(xml.readElementText().toStdString(),precision/8,false,false);
+                                base64::decodeBase64(xml.readElementText().toStdString(),precision/8,false,false);
                      }
                 }
 

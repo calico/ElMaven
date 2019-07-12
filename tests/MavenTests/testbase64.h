@@ -6,9 +6,6 @@
 #include <sstream>
 #include <fstream>
 #include <string.h>
-#include "utilities.h"
-#include "base64.h"
-
 
 class Testbase64 : public QObject {
     Q_OBJECT
@@ -29,11 +26,8 @@ class Testbase64 : public QObject {
 
         // test functions - all functions prefixed with "test" will be ran as tests
         // this is automatically detected thanks to Qt's meta-information about QObjects
-        void testdecode_base64();
+        void testdecodeBase64();
         void testdecodeString();
-        void testencode_base64();
-        void testencodeString();
-
 };
 
 #endif // TESTBASE64_H

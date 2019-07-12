@@ -1,8 +1,17 @@
-#include "pollyelmaveninterface.h"
-#include "controller.h"
 #include <QVariant>
+
+#include "analytics.h"
+#include "controller.h"
 #include "csvreports.h"
-#include <string>
+#include "database.h"
+#include "ligandwidget.h"
+#include "loginform.h"
+#include "mainwindow.h"
+#include "mavenparameters.h"
+#include "pollyelmaveninterface.h"
+#include "pollywaitdialog.h"
+#include "projectdockwidget.h"
+#include "tabledockwidget.h"
 
 PollyElmavenInterfaceDialog::PollyElmavenInterfaceDialog(MainWindow* mw)
     : QDialog(mw), _mainwindow(mw), _loginform(nullptr)
@@ -729,7 +738,7 @@ void PollyElmavenInterfaceDialog::_showErrorMessage(QString title,
                                                     QString message,
                                                     QMessageBox::Icon icon)
 {
-    QMessageBox msgBox(icon, title, message, QMessageBox::Ok, this);
+    QMessageBox msgBox(icon, title, message, QMessageBox::Ok, _mainwindow);
     msgBox.exec();
 }
 
