@@ -6,6 +6,7 @@
 #include "connection.h"
 #include "cursor.h"
 #include "mzMassCalculator.h"
+#include "mzAligner.h"
 #include "mzSample.h"
 #include "projectversioning.h"
 #include "Scan.h"
@@ -486,19 +487,19 @@ void ProjectDatabase::saveAlignment(const vector<mzSample*>& samples)
         if (s->ms1ScanCount() == 0)
             continue;
 
-        for (auto scan : s->scans) {
-            if (scan->mslevel > 1)
-                continue;
-
-            float rt_original = scan->originalRt;
-            float rt_updated = scan->rt;
-            alignmentQuery->bind(":sample_id", s->getSampleId());
-            alignmentQuery->bind(":scannum", scan->scannum);
-            alignmentQuery->bind(":rt_original", rt_original);
-            alignmentQuery->bind(":rt_updated", rt_updated);
-
-            if (!alignmentQuery->execute())
-                cerr << "Error: failed to write alignment data" << endl;
+        for (int i = 0; i < s->scans.size(); i++) {
+            // save rt for every 200th scan (and last scan)
+            if (i % 200 == 0 || i == s->scans.size() - 1) {
+                auto scan = s->scans[i];
+                float rt_updated = scan->rt;
+                float rt_original = scan->originalRt;
+                alignmentQuery->bind(":sample_id", s->getSampleId());
+                alignmentQuery->bind(":scannum", -1);
+                alignmentQuery->bind(":rt_original", rt_original);
+                alignmentQuery->bind(":rt_updated", rt_updated);
+                if (!alignmentQuery->execute())
+                    cerr << "Error: failed to write alignment data" << endl;
+            }
         }
     }
 
@@ -674,7 +675,8 @@ void ProjectDatabase::saveSettings(const map<string, variant>& settingsMap)
                       , :main_window_selected_db_name     \
                       , :main_window_charge               \
                       , :main_window_peak_quantitation    \
-                      , :main_window_mass_resolution      )");
+                      , :main_window_mass_resolution      \
+                      , :must_have_fragmentation          )");
 
     settingsQuery->bind(":ionization_mode", BINT(settingsMap.at("ionizationMode")));
     settingsQuery->bind(":ionization_type", BINT(settingsMap.at("ionizationType")));
@@ -744,6 +746,7 @@ void ProjectDatabase::saveSettings(const map<string, variant>& settingsMap)
     settingsQuery->bind(":max_rt", BDOUBLE(settingsMap.at("maxRt")));
     settingsQuery->bind(":min_intensity", BDOUBLE(settingsMap.at("minIntensity")));
     settingsQuery->bind(":max_intensity", BDOUBLE(settingsMap.at("maxIntensity")));
+    settingsQuery->bind(":must_have_fragmentation", BINT(settingsMap.at("mustHaveFragmentation")));
 
     settingsQuery->bind(":database_search", BINT(settingsMap.at("databaseSearch")));
     settingsQuery->bind(":compound_extraction_window", BDOUBLE(settingsMap.at("compoundExtractionWindow")));
@@ -1200,6 +1203,11 @@ void ProjectDatabase::loadAndPerformAlignment(const vector<mzSample*>& loaded)
         sampleScanMap[sample->getSampleId()] = scanMap;
     }
 
+    Aligner aligner;
+    aligner.setSamples(loaded);
+    AlignmentSegment* lastSegment = nullptr;
+    int segCount = 0;
+
     while (alignmentQuery->next()) {
         string sampleName = alignmentQuery->stringValue("sample_name");
         int sampleId = alignmentQuery->integerValue("sample_id");
@@ -1209,16 +1217,39 @@ void ProjectDatabase::loadAndPerformAlignment(const vector<mzSample*>& loaded)
         }
 
         int scannum = alignmentQuery->integerValue("scannum");
-        auto scanMap = sampleScanMap[sampleId];
-        if (!scanMap.count(scannum)) {
-            cerr << "Error: no scan with scannum " << sampleId << endl;
-            continue;
-        }
+        if (scannum != -1) {
+            // perform regular alignment
+            auto scanMap = sampleScanMap[sampleId];
+            if (!scanMap.count(scannum)) {
+                cerr << "Error: no scan with scannum " << sampleId << endl;
+                continue;
+            }
 
-        Scan* scan = scanMap[scannum];
-        scan->rt = alignmentQuery->floatValue("rt_updated");
-        scan->originalRt = alignmentQuery->floatValue("rt_original");
+            Scan* scan = scanMap[scannum];
+            scan->rt = alignmentQuery->floatValue("rt_updated");
+            scan->originalRt = alignmentQuery->floatValue("rt_original");
+        } else {
+            // perform segmented alignment
+            segCount++;
+            AlignmentSegment* seg = new AlignmentSegment();
+            seg->sampleName = sampleName;
+            seg->segStart = 0;
+            seg->segEnd   = alignmentQuery->floatValue("rt_original");
+            seg->newStart = 0;
+            seg->newEnd   = alignmentQuery->floatValue("rt_updated");
+
+            if (lastSegment and lastSegment->sampleName == seg->sampleName) {
+                seg->segStart = lastSegment->segEnd;
+                seg->newStart = lastSegment->newEnd;
+            }
+
+            aligner.addSegment(sampleName, seg);
+            lastSegment = seg;
+        }
     }
+
+    if (segCount > 0)
+        aligner.performSegmentedAlignment();
 }
 
 map<string, variant> ProjectDatabase::loadSettings()
@@ -1296,6 +1327,7 @@ map<string, variant> ProjectDatabase::loadSettings()
         settingsMap["maxRt"] = variant(settingsQuery->doubleValue("max_rt"));
         settingsMap["minIntensity"] = variant(settingsQuery->doubleValue("min_intensity"));
         settingsMap["maxIntensity"] = variant(settingsQuery->doubleValue("max_intensity"));
+        settingsMap["mustHaveFragmentation"] = variant(settingsQuery->integerValue("must_have_fragmentation"));
 
         settingsMap["databaseSearch"] = variant(settingsQuery->integerValue("database_search"));
         settingsMap["compoundExtractionWindow"] = settingsQuery->doubleValue("compound_extraction_window");
