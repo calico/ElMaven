@@ -1498,7 +1498,7 @@ PeakGroup* MainWindow::bookmarkPeakGroup()
 
 PeakGroup* MainWindow::bookmarkPeakGroup(PeakGroup* group)
 {
-	if ( bookmarkedPeaks == NULL ) return NULL;
+    if (!bookmarkedPeaks) return nullptr;
 	//TODO: User feedback when group is rejected
 	if (group->peakCount() == 0) return NULL;
 
