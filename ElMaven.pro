@@ -25,3 +25,7 @@ CONFIG += ordered qt thread
 SUBDIRS += 3rdparty crashhandler src
 
 !equals(NOTESTS, "yes"): SUBDIRS+=tests/MavenTests
+
+#Phil mod - just want the GUI (and peakdetector)
+#TODO: this isn't working
+#SUBDIRS -= crashhandler tests/MavenTests
