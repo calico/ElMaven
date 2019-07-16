@@ -96,22 +96,6 @@ void SampleRtWidget::prepareGraphDataPolyFit(QVector<double>&xAxis,
     }
 }
 
-void SampleRtWidget::prepareGraphDataLoessFit(QVector<double>&xAxis,
-                                              QVector<double>&yAxis,
-                                              mzSample* sample)
-{
-    double rt, rtDiff;
-    if (!sample->scans.empty()) {
-        for (auto const scan : sample->scans) {
-            rt = scan->originalRt;
-            xAxis.push_back(rt);
-
-            rtDiff = scan->originalRt - scan->rt;
-            yAxis.push_back(rtDiff);
-        }
-    }
-}
-
 void SampleRtWidget::prepareGraphDataObiWarp(QVector<double>&xAxis,
                                              QVector<double>&yAxis,
                                              mzSample* sample)
@@ -135,14 +119,11 @@ void SampleRtWidget::plotIndividualGraph(mzSample* sample)
 
     int alignAlgo = _mw->alignmentDialog->alignAlgo->currentIndex();
 
-    if(alignAlgo == 0)
+    if(alignAlgo == 1)
         prepareGraphDataPolyFit(xAxis, yAxis, sample);
 
-    if(alignAlgo == 1)
+    if(alignAlgo == 0)
         prepareGraphDataObiWarp(xAxis, yAxis, sample);
-
-    if(alignAlgo == 2)
-        prepareGraphDataLoessFit(xAxis, yAxis, sample);
 
     if(!xAxis.isEmpty() && !yAxis.isEmpty()){
 
