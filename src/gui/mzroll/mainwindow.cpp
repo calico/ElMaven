@@ -2390,6 +2390,10 @@ void MainWindow::_setStatusString(QString text)
 void MainWindow::readSettings() {
 	settings = new QSettings("mzRoll", "Application Settings");
 
+    qDebug() << "Loading settings file located at " << settings->fileName() << endl;
+    settings->remove("lastDatabaseFile");
+    qDebug() << "Removed lastDatabaseFile from settings." << endl;
+
 	QPoint pos = settings->value("pos", QPoint(0, 0)).toPoint();
 	QSize size = settings->value("size", QSize(1000, 1400)).toSize();
 

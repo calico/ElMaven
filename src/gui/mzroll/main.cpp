@@ -70,8 +70,9 @@ int main(int argc, char *argv[])
     qApp->setApplicationName("El-Maven");
     qApp->setApplicationVersion(STR(EL_MAVEN_VERSION));
 
-
-    elmavexceptionhandler::init();
+    #ifdef NDEBUG
+        elmavexceptionhandler::init();
+    #endif
 
     QPixmap pixmap(":/images/splash.png","PNG",Qt::ColorOnly);
     QSplashScreen splash(pixmap);
