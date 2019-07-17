@@ -1384,8 +1384,10 @@ vector<mzSample*> MainWindow::getVisibleSamples() {
 
 PeakGroup* MainWindow::bookmarkPeakGroup()
 {
-    if (eicWidget && (eicWidget->getParameters()->getSelectedGroup() != NULL)) {
+    if (eicWidget && eicWidget->getParameters() && eicWidget->getParameters()->getSelectedGroup()) {
        return bookmarkPeakGroup(eicWidget->getParameters()->getSelectedGroup());
+    } else {
+       return nullptr;
     }
 }
 

@@ -470,7 +470,7 @@ private:
 	QList<QPointer<TableDockWidget> > groupTables;
 	//Added when merging with Maven776 - Kiran
     QMap< QPointer<TableDockWidget>, QToolButton*> groupTablesButtons;
-	EicWidget *eicWidget; //plot of extractred EIC
+    EicWidget *eicWidget; //plot of extracted EIC
 	History history;
 
 	MassCutoff *_massCutoffWindow;
